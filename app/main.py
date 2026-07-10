@@ -60,6 +60,24 @@ SOURCE_LABELS = {
     'serpapi': 'SerpAPI',
 }
 
+FOLDER_META = {
+    'instagram': ('📸', 'اینستاگرام', 'پیج‌ها و لینک‌های Instagram'),
+    'telegram': ('✈️', 'تلگرام', 'کانال‌ها و لینک‌های Telegram'),
+    'divar': ('🏷️', 'دیوار', 'آگهی‌های پیدا شده از Divar'),
+    'sheypoor': ('📌', 'شیپور', 'آگهی‌های پیدا شده از Sheypoor'),
+    'torob': ('🛒', 'ترب', 'محصولات و فروشگاه‌های Torob'),
+    'balad': ('🗺️', 'بلد', 'کسب‌وکارهای Balad'),
+    'maps': ('📍', 'مپ‌ها', 'Google Maps / Neshan و منابع مکانی'),
+    'website': ('🌐', 'وب‌سایت‌ها', 'فروشگاه‌ها و سایت‌های مستقل'),
+    'ai': ('🤖', 'هوش مصنوعی', 'نتایج سرچ مستقیم AI و تحلیل AI'),
+    'tavily': ('🔎', 'Tavily', 'نتایج جستجوی Tavily'),
+    'manual': ('✍️', 'دستی/Import', 'مخاطبین دستی، CSV و لینک‌های جستجوی دستی'),
+    'other': ('📁', 'سایر منابع', 'مواردی که منبع مشخص‌تری ندارند'),
+}
+
+FOLDER_ORDER = ['instagram', 'telegram', 'divar', 'sheypoor', 'torob', 'balad', 'maps', 'website', 'ai', 'tavily', 'manual', 'other']
+
+
 COLLECTOR_LABELS = {
     'all': 'همه منابع فعال',
     'web': 'جستجوی وب؛ همه APIهای فعال',
@@ -262,6 +280,79 @@ def contact_buttons(lead: Lead) -> str:
     return '<div class="actions">' + ''.join(buttons) + '</div>'
 
 
+def folder_key(lead: Lead) -> str:
+    src = (lead.source or '').lower()
+    blob = ' '.join([src, lead.url or '', lead.website or '', lead.instagram or '', lead.telegram or '']).lower()
+    if 'instagram' in blob:
+        return 'instagram'
+    if 'telegram' in blob or 't.me/' in blob or 'telegram.me' in blob:
+        return 'telegram'
+    if 'divar' in blob:
+        return 'divar'
+    if 'sheypoor' in blob:
+        return 'sheypoor'
+    if 'torob' in blob:
+        return 'torob'
+    if 'balad' in blob:
+        return 'balad'
+    if 'neshan' in blob or 'google_places' in blob or 'google.com/maps' in blob or 'maps.google' in blob:
+        return 'maps'
+    if 'openrouter' in blob or src.startswith('ai_') or src == 'ai_search':
+        return 'ai'
+    if 'tavily' in blob:
+        return 'tavily'
+    if src in {'manual', 'csv', 'search_link'} or 'دستی' in src:
+        return 'manual'
+    if lead.website or (lead.url and not any(x in blob for x in ['instagram', 't.me/', 'divar', 'sheypoor', 'torob', 'balad'])):
+        return 'website'
+    return 'other'
+
+
+def render_lead_row(lead: Lead, token: str, fresh_ids: set[int]) -> str:
+    is_fresh = lead.id in fresh_ids
+    fresh_badge = '<span class="fresh-badge">تازه اضافه شد</span><br>' if is_fresh else ''
+    row_class = 'fresh-row' if is_fresh else ''
+    return f'''
+        <tr class="{row_class}">
+          <td>
+            {fresh_badge}<span class="badge">{h(source_label(lead.source))}</span><br>
+            <span class="badge status">{h(status_label(lead.status))}</span><br>
+            <span class="small muted">شناسه: {lead.id}</span><br>
+            <div class="timebox small">افزوده شد: {h(format_dt(lead.first_seen))}<br>بروزرسانی: {h(format_dt(lead.last_seen))}</div>
+          </td>
+          <td>
+            <div class="lead-title">{h(lead.title)}</div>
+            <div class="muted">{h((lead.description or '')[:180])}</div>
+            <div class="small muted">دسته: {h(lead.category or '-')} | شهر: {h(lead.city or '-')} | امتیاز: <span class="score">{lead.score}</span></div>
+          </td>
+          <td>{contact_buttons(lead)}<div style="margin-top:6px"><a class="action" href="/leads/{lead.id}?token={h(token)}">جزئیات و تاریخچه</a></div></td>
+          <td class="editable">
+            <form class="inline" method="post" action="/leads/{lead.id}/update">
+              <input type="hidden" name="token" value="{h(token)}">
+              <select name="status">{status_options(lead.status)}</select>
+              <input name="phone" placeholder="تلفن" value="{h(lead.phone)}">
+              <input class="wide" name="website" placeholder="وب‌سایت" value="{h(lead.website)}">
+              <input class="wide" name="instagram" placeholder="لینک اینستاگرام" value="{h(lead.instagram)}">
+              <input class="wide" name="telegram" placeholder="لینک تلگرام" value="{h(lead.telegram)}">
+              <input class="wide" name="notes" placeholder="یادداشت پیگیری" value="{h(lead.notes)}">
+              <button class="btn2">ذخیره در بانک</button>
+            </form>
+          </td>
+          <td>
+            <a class="url" target="_blank" href="{h(lead.url)}">{h(lead.url)}</a><br>
+            <span class="muted">{h(lead.address or '')}</span>
+          </td>
+        </tr>'''
+
+
+def folder_source_filter(key: str) -> str:
+    return {
+        'instagram': 'instagram', 'telegram': 'telegram', 'divar': 'divar', 'sheypoor': 'sheypoor',
+        'torob': 'torob', 'balad': 'balad', 'maps': 'neshan', 'ai': 'openrouter', 'tavily': 'tavily',
+        'manual': 'manual', 'website': 'web', 'other': ''
+    }.get(key, '')
+
+
 def css() -> str:
     return '''
     <style>
@@ -277,8 +368,8 @@ def css() -> str:
       .badge{display:inline-flex;align-items:center;padding:5px 9px;border-radius:999px;background:#eef2ff;color:#2546a6;font-size:12px;margin:2px;font-weight:600}.status{background:#ecfdf3;color:#027a48}.score{font-weight:bold;color:#137333}.url{max-width:270px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:inline-block;direction:ltr;color:#475467}.lead-title{font-weight:800;color:#101828;font-size:14px;margin-bottom:4px}
       .actions{display:flex;gap:7px;flex-wrap:wrap;min-width:230px}.action{display:inline-flex;align-items:center;justify-content:center;background:#f2f4f7;color:#344054;border:1px solid #d0d5dd;font-size:12px;line-height:1.2}.action.primary{background:var(--primary);color:white;border-color:var(--primary)}.action.insta{background:#fff0f6;color:#c11574;border-color:#ffcce1}.action.tg{background:#eef8ff;color:#026aa2;border-color:#b9e6fe}button.action{cursor:pointer}
       .editable input{width:132px}.editable .wide{width:210px}.fresh-row{background:#f0fdf4!important}.fresh-badge{display:inline-block;background:var(--success);color:white;border-radius:999px;padding:5px 9px;font-size:12px;margin:2px;font-weight:700}.timebox{line-height:1.9;color:#475467}.suggestions{display:flex;gap:7px;flex-wrap:wrap;margin-top:10px}.suggestion{background:#fff;color:#344054;border:1px dashed #98a2b3;border-radius:999px;padding:8px 11px;font-size:12px}.suggestion:hover{background:#eff6ff;border-color:#60a5fa;color:#1d4ed8}.remember{display:inline-flex;align-items:center;gap:7px;background:rgba(255,255,255,.16);color:white;border:1px solid rgba(255,255,255,.24);border-radius:999px;padding:9px 12px;margin-top:10px}.remember input{accent-color:#fff}
-      .hint{background:#fffbeb;border:1px solid #fde68a;color:#7a4b00;border-radius:14px;padding:12px;margin-top:12px}.log-item{border-right:4px solid var(--primary);padding:10px;margin:9px 0;background:#f8fafc;border-radius:12px}
-      @media(max-width:900px){.wrap{padding:12px}.top{border-radius:20px;padding:18px}.brand h1{font-size:22px}.stats,.grid2,.grid3{grid-template-columns:1fr}.card{padding:14px;border-radius:16px}table{display:block;overflow-x:auto;direction:rtl}.top{display:block}.editable input{width:150px}.nav a{font-size:12px}.stat b{font-size:24px}}
+      .hint{background:#fffbeb;border:1px solid #fde68a;color:#7a4b00;border-radius:14px;padding:12px;margin-top:12px}.log-item{border-right:4px solid var(--primary);padding:10px;margin:9px 0;background:#f8fafc;border-radius:12px}.folder-grid{display:grid;grid-template-columns:repeat(6,minmax(130px,1fr));gap:10px;margin:12px 0}.folder-card{display:block;background:linear-gradient(180deg,#fff,#f8fbff);border:1px solid #dbeafe;border-radius:16px;padding:12px;color:#101828;box-shadow:0 8px 20px rgba(37,99,235,.06)}.folder-card b{display:block;font-size:18px;margin-top:6px}.folder-card span{font-size:12px;color:#667085}.folder-section{border:1px solid var(--line);border-radius:18px;margin:14px 0;background:white;overflow:hidden}.folder-section summary{cursor:pointer;list-style:none;padding:16px 18px;background:linear-gradient(180deg,#f8fafc,#eef4ff);display:flex;align-items:center;justify-content:space-between;gap:10px}.folder-section summary::-webkit-details-marker{display:none}.folder-title{font-weight:800;font-size:16px}.folder-desc{color:#667085;font-size:12px}.folder-count{background:#2563eb;color:#fff;border-radius:999px;padding:5px 10px;font-size:12px;font-weight:700}.folder-table{padding:0 0 8px}.empty-folder{padding:18px;color:#667085}
+      @media(max-width:900px){.folder-grid{grid-template-columns:repeat(2,1fr)}.wrap{padding:12px}.top{border-radius:20px;padding:18px}.brand h1{font-size:22px}.stats,.grid2,.grid3{grid-template-columns:1fr}.card{padding:14px;border-radius:16px}table{display:block;overflow-x:auto;direction:rtl}.top{display:block}.editable input{width:150px}.nav a{font-size:12px}.stat b{font-size:24px}}
     </style>
     '''
 
@@ -362,42 +453,40 @@ def index(
     cities = list(db.scalars(select(City).order_by(City.id)).all())
     runs = list(db.scalars(select(CrawlerRun).order_by(desc(CrawlerRun.started_at)).limit(8)).all())
 
-    lead_rows = ''
+    grouped: dict[str, list[Lead]] = {key: [] for key in FOLDER_ORDER}
     for lead in leads:
-        is_fresh = lead.id in fresh_ids
-        fresh_badge = '<span class="fresh-badge">تازه اضافه شد</span><br>' if is_fresh else ''
-        row_class = 'fresh-row' if is_fresh else ''
-        lead_rows += f'''
-        <tr class="{row_class}">
-          <td>
-            {fresh_badge}<span class="badge">{h(source_label(lead.source))}</span><br>
-            <span class="badge status">{h(status_label(lead.status))}</span><br>
-            <span class="small muted">شناسه: {lead.id}</span><br>
-            <div class="timebox small">افزوده شد: {h(format_dt(lead.first_seen))}<br>بروزرسانی: {h(format_dt(lead.last_seen))}</div>
-          </td>
-          <td>
-            <div class="lead-title">{h(lead.title)}</div>
-            <div class="muted">{h((lead.description or '')[:180])}</div>
-            <div class="small muted">دسته: {h(lead.category or '-')} | شهر: {h(lead.city or '-')} | امتیاز: <span class="score">{lead.score}</span></div>
-          </td>
-          <td>{contact_buttons(lead)}</td>
-          <td class="editable">
-            <form class="inline" method="post" action="/leads/{lead.id}/update">
-              <input type="hidden" name="token" value="{h(token)}">
-              <select name="status">{status_options(lead.status)}</select>
-              <input name="phone" placeholder="تلفن" value="{h(lead.phone)}">
-              <input class="wide" name="website" placeholder="وب‌سایت" value="{h(lead.website)}">
-              <input class="wide" name="instagram" placeholder="لینک اینستاگرام" value="{h(lead.instagram)}">
-              <input class="wide" name="telegram" placeholder="لینک تلگرام" value="{h(lead.telegram)}">
-              <input class="wide" name="notes" placeholder="یادداشت پیگیری" value="{h(lead.notes)}">
-              <button class="btn2">ذخیره در بانک</button>
-            </form>
-          </td>
-          <td>
-            <a class="url" target="_blank" href="{h(lead.url)}">{h(lead.url)}</a><br>
-            <span class="muted">{h(lead.address or '')}</span>
-          </td>
-        </tr>'''
+        grouped.setdefault(folder_key(lead), []).append(lead)
+
+    folder_cards = ''.join(
+        f'<a class="folder-card" href="#folder-{key}"><span>{h(FOLDER_META[key][0])} {h(FOLDER_META[key][1])}</span><b>{len(grouped.get(key, []))}</b><span>{h(FOLDER_META[key][2])}</span></a>'
+        for key in FOLDER_ORDER if grouped.get(key)
+    ) or '<div class="muted">هنوز نتیجه‌ای برای پوشه‌بندی وجود ندارد.</div>'
+
+    grouped_sections = ''
+    first_open = True
+    for key in FOLDER_ORDER:
+        items = grouped.get(key, [])
+        if not items:
+            continue
+        icon, label, folder_desc = FOLDER_META.get(key, FOLDER_META['other'])
+        rows = ''.join(render_lead_row(lead, token, fresh_ids) for lead in items)
+        open_attr = ' open' if first_open or any(lead.id in fresh_ids for lead in items) else ''
+        first_open = False
+        filter_value = folder_source_filter(key)
+        grouped_sections += f'''
+        <details id="folder-{h(key)}" class="folder-section"{open_attr}>
+          <summary>
+            <div><div class="folder-title">{h(icon)} پوشه {h(label)}</div><div class="folder-desc">{h(folder_desc)}</div></div>
+            <div><span class="folder-count">{len(items)} مخاطب</span> <a class="btn2" href="/?token={h(token)}&source={h(filter_value)}&sort={h(sort)}#folder-{h(key)}">فیلتر فقط این پوشه</a></div>
+          </summary>
+          <div class="folder-table">
+            <table>
+              <thead><tr><th>منبع/وضعیت/زمان</th><th>مشخصات مخاطب</th><th>راه‌های ارتباط</th><th>ویرایش و پیگیری</th><th>لینک/آدرس</th></tr></thead>
+              <tbody>{rows}</tbody>
+            </table>
+          </div>
+        </details>'''
+
 
     keyword_list = '، '.join([kw.keyword for kw in keywords[:30]])
     city_list = '، '.join([c.name for c in cities[:30]])
@@ -517,12 +606,10 @@ def index(
       </form>
     </div>
 
-    <div class="card" style="overflow:auto">
-      <div class="section-title"><h3>بانک اطلاعاتی مخاطبین</h3><span class="muted">مرتب‌سازی فعلی: {h(SORT_LABELS.get(sort, sort))} | ارتباط فقط با دکمه‌های باز کردن پلتفرم انجام می‌شود؛ ارسال خودکار پیام نداریم.</span></div>
-      <table>
-        <thead><tr><th>منبع/وضعیت/زمان</th><th>مشخصات مخاطب</th><th>راه‌های ارتباط</th><th>ویرایش و پیگیری</th><th>لینک/آدرس</th></tr></thead>
-        <tbody>{lead_rows or '<tr><td colspan="5">هنوز مخاطبی در بانک اطلاعاتی ذخیره نشده است.</td></tr>'}</tbody>
-      </table>
+    <div class="card">
+      <div class="section-title"><h3>بانک اطلاعاتی مخاطبین</h3><span class="muted">نتایج بر اساس منبع داخل پوشه‌های جدا تفکیک شده‌اند | مرتب‌سازی فعلی: {h(SORT_LABELS.get(sort, sort))}</span></div>
+      <div class="folder-grid">{folder_cards}</div>
+      {grouped_sections or '<div class="empty-folder">هنوز مخاطبی در بانک اطلاعاتی ذخیره نشده است.</div>'}
     </div>
 
     <div id="settings" class="grid2">
