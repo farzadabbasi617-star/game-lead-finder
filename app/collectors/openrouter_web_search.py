@@ -23,11 +23,13 @@ async def run_openrouter_web_search(
     )
     saved = 0
     duplicates = 0
+    saved_ids: list[int] = []
     if not error:
         for lead in leads:
-            _, is_new = upsert_lead(db, lead)
+            saved_lead, is_new = upsert_lead(db, lead)
             if is_new:
                 saved += 1
+                saved_ids.append(saved_lead.id)
             else:
                 duplicates += 1
     finish_run(db, run, len(leads), saved, error)
@@ -38,6 +40,7 @@ async def run_openrouter_web_search(
         'found': len(leads),
         'saved': saved,
         'duplicates': duplicates,
+        'saved_ids': saved_ids,
         'model': model,
         'error': error,
     }

@@ -3,13 +3,15 @@ from __future__ import annotations
 import csv
 import html
 import io
+from datetime import timezone
 from typing import Annotated
+from zoneinfo import ZoneInfo
 from urllib.parse import quote_plus, urlparse
 
 from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Query, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 from openpyxl import Workbook
-from sqlalchemy import desc, or_, select
+from sqlalchemy import asc, desc, or_, select
 from sqlalchemy.orm import Session
 
 from app.collectors.ai_search import run_ai_search
@@ -26,7 +28,7 @@ from app.utils import public_invite_message
 app = FastAPI(title='بانک اطلاعاتی لیدهای گیمینگ')
 
 STATUS_LABELS = {
-    'new': 'جدید',
+    'new': 'در انتظار بررسی',
     'checked': 'بررسی شد',
     'messaged': 'پیام داده شد',
     'replied': 'جواب داد',
@@ -68,6 +70,88 @@ COLLECTOR_LABELS = {
     'neshan': 'نشان',
     'search_links': 'رایگان؛ ساخت لینک جستجوی دستی',
 }
+
+
+SORT_LABELS = {
+    'newest': 'جدیدترین اضافه‌شده',
+    'oldest': 'قدیمی‌ترین اضافه‌شده',
+    'score_desc': 'بالاترین امتیاز',
+    'score_asc': 'پایین‌ترین امتیاز',
+    'updated_desc': 'آخرین بروزرسانی',
+    'status': 'وضعیت پیگیری',
+    'source': 'منبع',
+    'city': 'شهر',
+    'title': 'نام/عنوان',
+}
+
+SEARCH_SUGGESTIONS = [
+    'خرید اکانت کلش رویال', 'فروش اکانت کلش', 'فروش سی پی کالاف', 'خرید CP کالاف',
+    'خرید یوسی پابجی', 'فروش UC پابجی', 'جم فری فایر', 'الماس فری فایر',
+    'گیفت کارت پلی استیشن', 'گیفت کارت استیم', 'اکانت استیم', 'اکانت ولورانت',
+    'فروشگاه کنسول تهران', 'فروشگاه پلی استیشن تهران', 'گیم نت تهران', 'لوازم گیمینگ تهران',
+    'site:t.me فروش سی پی کالاف', 'site:instagram.com خرید اکانت کلش رویال',
+]
+
+TEHRAN_TZ = ZoneInfo('Asia/Tehran')
+
+
+def format_dt(value) -> str:
+    if not value:
+        return '-'
+    try:
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=timezone.utc)
+        value = value.astimezone(TEHRAN_TZ)
+        return value.strftime('%Y/%m/%d - %H:%M')
+    except Exception:
+        return str(value)
+
+
+def sort_options(selected: str | None) -> str:
+    selected = selected or 'newest'
+    return ''.join(
+        f'<option value="{h(code)}" {"selected" if selected == code else ""}>{h(label)}</option>'
+        for code, label in SORT_LABELS.items()
+    )
+
+
+def apply_sort(stmt, sort: str | None):
+    sort = sort or 'newest'
+    if sort == 'oldest':
+        return stmt.order_by(asc(Lead.first_seen))
+    if sort == 'score_desc':
+        return stmt.order_by(desc(Lead.score), desc(Lead.first_seen))
+    if sort == 'score_asc':
+        return stmt.order_by(asc(Lead.score), desc(Lead.first_seen))
+    if sort == 'updated_desc':
+        return stmt.order_by(desc(Lead.last_seen), desc(Lead.first_seen))
+    if sort == 'status':
+        return stmt.order_by(asc(Lead.status), desc(Lead.first_seen))
+    if sort == 'source':
+        return stmt.order_by(asc(Lead.source), desc(Lead.first_seen))
+    if sort == 'city':
+        return stmt.order_by(asc(Lead.city), desc(Lead.first_seen))
+    if sort == 'title':
+        return stmt.order_by(asc(Lead.title), desc(Lead.first_seen))
+    return stmt.order_by(desc(Lead.first_seen), desc(Lead.score))
+
+
+def suggestion_buttons() -> str:
+    return '<div class="suggestions">' + ''.join(
+        f'<button type="button" class="suggestion" data-topic="{h(item)}">{h(item)}</button>'
+        for item in SEARCH_SUGGESTIONS
+    ) + '</div>'
+
+
+def parse_id_list(value: str | None) -> set[int]:
+    ids: set[int] = set()
+    for part in (value or '').split(','):
+        try:
+            if part.strip():
+                ids.add(int(part.strip()))
+        except Exception:
+            pass
+    return ids
 
 
 @app.on_event('startup')
@@ -183,7 +267,7 @@ def css() -> str:
       table{width:100%;border-collapse:separate;border-spacing:0;background:#fff;border-radius:12px;overflow:hidden} th,td{padding:10px;border-bottom:1px solid #edf0f5;text-align:right;vertical-align:top;font-size:13px} th{background:#f1f4ff;color:#344054;position:sticky;top:0;z-index:1} tr:hover{background:#fbfcff}
       .badge{display:inline-block;padding:4px 8px;border-radius:999px;background:#eef2ff;color:#2546a6;font-size:12px;margin:2px}.status{background:#ecfdf3;color:#027a48}.score{font-weight:bold;color:#137333}.url{max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:inline-block;direction:ltr}.small{font-size:12px}.ltr{direction:ltr;text-align:left}.grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
       .actions{display:flex;gap:6px;flex-wrap:wrap;min-width:230px}.action{display:inline-block;padding:7px 9px;border-radius:9px;background:#f2f4f7;color:#344054;border:1px solid #d0d5dd;font-size:12px;line-height:1.2}.action.primary{background:#1f55d5;color:white;border-color:#1f55d5}.action.insta{background:#fff0f6;color:#c11574;border-color:#ffcce1}.action.tg{background:#eef8ff;color:#026aa2;border-color:#b9e6fe}button.action{cursor:pointer}
-      .lead-title{font-weight:700;color:#101828}.editable input{width:130px}.editable .wide{width:210px}.section-title{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap}.hint{background:#fffaeb;border:1px solid #fedf89;color:#7a4b00;border-radius:12px;padding:10px;margin-top:10px}
+      .lead-title{font-weight:700;color:#101828}.editable input{width:130px}.editable .wide{width:210px}.fresh-row{background:#f0fdf4!important}.fresh-badge{display:inline-block;background:#12b76a;color:white;border-radius:999px;padding:4px 8px;font-size:12px;margin:2px}.timebox{line-height:1.9;color:#475467}.suggestions{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}.suggestion{background:#f8fafc;color:#344054;border:1px dashed #98a2b3;border-radius:999px;padding:7px 10px;font-size:12px}.remember{display:inline-flex;align-items:center;gap:6px;background:#fff;border:1px solid #e6e9f2;border-radius:999px;padding:8px 10px;margin-top:8px}.section-title{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap}.hint{background:#fffaeb;border:1px solid #fedf89;color:#7a4b00;border-radius:12px;padding:10px;margin-top:10px}
       @media(max-width:900px){.stats,.grid2,.grid3{grid-template-columns:1fr}.wrap{padding:12px} table{display:block;overflow-x:auto;direction:rtl}.top{display:block}.editable input{width:150px}}
     </style>
     '''
@@ -192,12 +276,40 @@ def css() -> str:
 def page(title: str, body: str) -> HTMLResponse:
     script = '''
     <script>
+      function fillStoredToken(){
+        const saved = localStorage.getItem('glf_admin_token') || '';
+        if(saved){ document.querySelectorAll('input[name="token"]').forEach(i=>{ if(!i.value) i.value=saved; }); }
+        const cb=document.getElementById('remember-token'); if(cb) cb.checked=!!saved;
+      }
+      function saveTokenIfNeeded(){
+        const cb=document.getElementById('remember-token');
+        const first=document.querySelector('input[name="token"]');
+        if(cb && cb.checked && first && first.value){ localStorage.setItem('glf_admin_token', first.value); }
+      }
+      document.addEventListener('DOMContentLoaded', fillStoredToken);
+      document.addEventListener('input', function(e){
+        if(e.target && e.target.name==='token'){
+          document.querySelectorAll('input[name="token"]').forEach(i=>{ if(i!==e.target) i.value=e.target.value; });
+          saveTokenIfNeeded();
+        }
+      });
+      document.addEventListener('change', function(e){
+        if(e.target && e.target.id==='remember-token'){
+          if(e.target.checked){ saveTokenIfNeeded(); } else { localStorage.removeItem('glf_admin_token'); }
+        }
+      });
       document.addEventListener('click', async function(e){
         if(e.target.classList.contains('copy-msg')){
           const t=e.target.dataset.message||'';
           try{await navigator.clipboard.writeText(t); e.target.textContent='کپی شد ✅';}
           catch(_){const a=document.createElement('textarea'); a.value=t; document.body.appendChild(a); a.select(); document.execCommand('copy'); a.remove(); e.target.textContent='کپی شد ✅';}
           setTimeout(()=>e.target.textContent='کپی متن دعوت',1600);
+        }
+        if(e.target.classList.contains('suggestion')){
+          const topic=e.target.dataset.topic||'';
+          const card=e.target.closest('.card') || document;
+          const inp=card.querySelector('input[name="topic"]') || document.querySelector('input[name="topic"]');
+          if(inp){ inp.value=topic; inp.focus(); }
         }
       });
     </script>
@@ -227,24 +339,31 @@ def index(
     category: str = Query(''),
     q: str = Query(''),
     limit: int = Query(100, ge=1, le=500),
+    sort: str = Query('newest'),
     token: str = Query('', description='رمز مدیریت'),
     ai_msg: str = Query(''),
+    new_ids: str = Query(''),
 ):
     stats = dashboard_stats(db)
     stmt = build_query(db, status, source, category, q)
-    leads = list(db.scalars(stmt.order_by(desc(Lead.score), desc(Lead.first_seen)).limit(limit)).all())
+    fresh_ids = parse_id_list(new_ids)
+    leads = list(db.scalars(apply_sort(stmt, sort).limit(limit)).all())
     keywords = list(db.scalars(select(Keyword).order_by(Keyword.id)).all())
     cities = list(db.scalars(select(City).order_by(City.id)).all())
     runs = list(db.scalars(select(CrawlerRun).order_by(desc(CrawlerRun.started_at)).limit(8)).all())
 
     lead_rows = ''
     for lead in leads:
+        is_fresh = lead.id in fresh_ids
+        fresh_badge = '<span class="fresh-badge">تازه اضافه شد</span><br>' if is_fresh else ''
+        row_class = 'fresh-row' if is_fresh else ''
         lead_rows += f'''
-        <tr>
+        <tr class="{row_class}">
           <td>
-            <span class="badge">{h(source_label(lead.source))}</span><br>
+            {fresh_badge}<span class="badge">{h(source_label(lead.source))}</span><br>
             <span class="badge status">{h(status_label(lead.status))}</span><br>
-            <span class="small muted">شناسه: {lead.id}</span>
+            <span class="small muted">شناسه: {lead.id}</span><br>
+            <div class="timebox small">افزوده شد: {h(format_dt(lead.first_seen))}<br>بروزرسانی: {h(format_dt(lead.last_seen))}</div>
           </td>
           <td>
             <div class="lead-title">{h(lead.title)}</div>
@@ -290,6 +409,7 @@ def index(
           <a href="#settings">کلمات و شهرها</a>
           <a href="#reports">گزارش اجراها</a>
         </div>
+        <label class="remember"><input type="checkbox" id="remember-token"> رمز مدیریت را در این مرورگر به خاطر بسپار</label>
       </div>
       <div>
         <a class="btn2" style="padding:10px;border-radius:10px" href="/export.xlsx?status={h(status)}&source={h(source)}&category={h(category)}&q={h(q)}">دانلود پشتیبان Excel</a>
@@ -298,7 +418,7 @@ def index(
 
     <div class="stats card">
       <div class="stat">کل مخاطبین<b>{stats['total']}</b></div>
-      <div class="stat">جدید<b>{stats['new']}</b></div>
+      <div class="stat">در انتظار بررسی<b>{stats['new']}</b></div>
       <div class="stat">پیام داده شده<b>{stats['messaged']}</b></div>
       <div class="stat">جواب داده<b>{stats['replied']}</b></div>
       <div class="stat">ثبت‌نام کرده<b>{stats['registered']}</b></div>
@@ -316,6 +436,7 @@ def index(
         <label>حداقل امتیاز <input type="number" name="min_score" value="60" min="0" max="100" style="width:80px"></label>
         <button>فقط با AI سرچ کن و ذخیره کن</button>
       </form>
+      <div class="muted" style="margin-top:10px">پیشنهادهای آماده سرچ:</div>{suggestion_buttons()}
       <div class="hint">این بخش از Tavily استفاده نمی‌کند و فقط با قابلیت Web Search خود OpenRouter کار می‌کند. Groq و HuggingFace سرچ وب مستقیم ندارند؛ اگر OpenRouter web search یا مدل‌های رایگان limit بخورند، برنامه مدل بعدی OpenRouter را امتحان می‌کند. شماره/سایت/پیج فقط وقتی ذخیره می‌شود که عمومی پیدا شود.</div>
     </div>
 
@@ -330,6 +451,7 @@ def index(
         <label>حداقل امتیاز AI <input type="number" name="min_score" value="60" min="0" max="100" style="width:80px"></label>
         <button>سرچ کن و لیدهای خوب را ذخیره کن</button>
       </form>
+      <div class="muted" style="margin-top:10px">پیشنهادهای آماده سرچ:</div>{suggestion_buttons()}
       <div class="hint">هوش مصنوعی اول عبارت‌های جستجوی بهتر می‌سازد، Tavily سرچ واقعی انجام می‌دهد، سپس AI نتایج نامرتبط را حذف می‌کند. فقط موارد تأییدشده و غیرتکراری در بانک ذخیره می‌شوند. اگر یک مدل لیمیت بخورد، خودکار مدل/سرویس بعدی امتحان می‌شود.</div>
     </div>
 
@@ -376,15 +498,16 @@ def index(
         <input name="source" placeholder="منبع؛ مثلا tavily یا instagram" value="{h(source)}">
         <input name="category" placeholder="دسته؛ مثلا گیفت کارت" value="{h(category)}">
         <select name="status"><option value="">همه وضعیت‌ها</option>{status_options(status)}</select>
+        <select name="sort">{sort_options(sort)}</select>
         <input name="limit" type="number" min="1" max="500" value="{limit}" style="width:90px">
         <button>نمایش</button>
       </form>
     </div>
 
     <div class="card" style="overflow:auto">
-      <div class="section-title"><h3>بانک اطلاعاتی مخاطبین</h3><span class="muted">ارتباط فقط با دکمه‌های باز کردن پلتفرم انجام می‌شود؛ ارسال خودکار پیام نداریم.</span></div>
+      <div class="section-title"><h3>بانک اطلاعاتی مخاطبین</h3><span class="muted">مرتب‌سازی فعلی: {h(SORT_LABELS.get(sort, sort))} | ارتباط فقط با دکمه‌های باز کردن پلتفرم انجام می‌شود؛ ارسال خودکار پیام نداریم.</span></div>
       <table>
-        <thead><tr><th>منبع/وضعیت</th><th>مشخصات مخاطب</th><th>راه‌های ارتباط</th><th>ویرایش و پیگیری</th><th>لینک/آدرس</th></tr></thead>
+        <thead><tr><th>منبع/وضعیت/زمان</th><th>مشخصات مخاطب</th><th>راه‌های ارتباط</th><th>ویرایش و پیگیری</th><th>لینک/آدرس</th></tr></thead>
         <tbody>{lead_rows or '<tr><td colspan="5">هنوز مخاطبی در بانک اطلاعاتی ذخیره نشده است.</td></tr>'}</tbody>
       </table>
     </div>
@@ -437,8 +560,9 @@ async def openrouter_web_search_now(
         msg = 'خطا در سرچ مستقیم AI: ' + str(result.get('error', 'نامشخص'))
     else:
         used_model = (result.get('model') or {}).get('model') if isinstance(result.get('model'), dict) else ''
-        msg = f"سرچ مستقیم AI انجام شد: {result.get('found',0)} لید پیدا شد، {result.get('saved',0)} مخاطب جدید ذخیره شد، {result.get('duplicates',0)} مورد تکراری merge شد. مدل: {used_model}"
-    return RedirectResponse(url=f'/?token={quote_plus(token)}&ai_msg={quote_plus(msg)}#openrouter-web-search', status_code=303)
+        msg = f"سرچ مستقیم AI انجام شد: {result.get('found',0)} لید پیدا شد، {result.get('saved',0)} مخاطب تازه ذخیره شد، {result.get('duplicates',0)} مورد تکراری merge شد. مدل: {used_model}"
+    ids = ','.join(str(x) for x in result.get('saved_ids', []) or [])
+    return RedirectResponse(url=f'/?token={quote_plus(token)}&ai_msg={quote_plus(msg)}&new_ids={quote_plus(ids)}&sort=newest#openrouter-web-search', status_code=303)
 
 
 @app.post('/ai-search')
@@ -467,10 +591,11 @@ async def ai_search_now(
     if not result.get('ok'):
         msg = 'خطا در جستجوی هوشمند: ' + str(result.get('error', 'نامشخص'))
     else:
-        msg = f"جستجوی هوشمند انجام شد: {result.get('found',0)} نتیجه بررسی شد، {result.get('approved',0)} مورد تأیید AI بود، {result.get('saved',0)} مخاطب جدید ذخیره شد، {result.get('duplicates',0)} مورد تکراری merge شد."
+        msg = f"جستجوی هوشمند انجام شد: {result.get('found',0)} نتیجه بررسی شد، {result.get('approved',0)} مورد تأیید AI بود، {result.get('saved',0)} مخاطب تازه ذخیره شد، {result.get('duplicates',0)} مورد تکراری merge شد."
         if result.get('errors'):
             msg += ' هشدار: ' + ' | '.join(result.get('errors', [])[:2])[:350]
-    return RedirectResponse(url=f'/?token={quote_plus(token)}&ai_msg={quote_plus(msg)}#ai-search', status_code=303)
+    ids = ','.join(str(x) for x in result.get('saved_ids', []) or [])
+    return RedirectResponse(url=f'/?token={quote_plus(token)}&ai_msg={quote_plus(msg)}&new_ids={quote_plus(ids)}&sort=newest#ai-search', status_code=303)
 
 
 @app.post('/run')
@@ -655,14 +780,14 @@ async def enrich(db: Session = Depends(get_db), token: Annotated[str, Form()] = 
 
 
 @app.get('/api/leads')
-def api_leads(db: Session = Depends(get_db), token: str = Query(...), status: str = '', source: str = '', limit: int = Query(100, ge=1, le=500)):
+def api_leads(db: Session = Depends(get_db), token: str = Query(...), status: str = '', source: str = '', sort: str = 'newest', limit: int = Query(100, ge=1, le=500)):
     check_token(token)
     stmt = select(Lead)
     if status:
         stmt = stmt.where(Lead.status == status)
     if source:
         stmt = stmt.where(Lead.source.ilike(f'%{source}%'))
-    leads = list(db.scalars(stmt.order_by(desc(Lead.score), desc(Lead.first_seen)).limit(limit)).all())
+    leads = list(db.scalars(apply_sort(stmt, sort).limit(limit)).all())
     return [
         {
             'id': l.id, 'source': source_label(l.source), 'source_code': l.source, 'type': l.entity_type,

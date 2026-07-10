@@ -19,7 +19,7 @@ async def run_ai_search(
 ) -> dict:
     settings = get_settings()
     if not settings.tavily_api_key:
-        return {'ok': False, 'error': 'TAVILY_API_KEY تنظیم نشده است.', 'queries': [], 'found': 0, 'saved': 0, 'duplicates': 0}
+        return {'ok': False, 'error': 'TAVILY_API_KEY تنظیم نشده است.', 'queries': [], 'found': 0, 'saved': 0, 'duplicates': 0, 'saved_ids': []}
 
     max_queries = min(max(max_queries, 1), 20)
     results_per_query = min(max(results_per_query, 1), 20)
@@ -29,6 +29,7 @@ async def run_ai_search(
     found = 0
     saved = 0
     duplicates = 0
+    saved_ids: list[int] = []
     errors: list[str] = []
 
     queries, query_model, query_error = await generate_queries_with_ai(topic, city, max_queries=max_queries)
@@ -63,9 +64,10 @@ async def run_ai_search(
         reason = verdict.get('reason')
         if reason:
             item['notes'] = f'AI: {reason}'
-        _, is_new = upsert_lead(db, item)
+        saved_lead, is_new = upsert_lead(db, item)
         if is_new:
             saved += 1
+            saved_ids.append(saved_lead.id)
         else:
             duplicates += 1
 
@@ -80,6 +82,7 @@ async def run_ai_search(
         'approved': len(verdict_by_index),
         'saved': saved,
         'duplicates': duplicates,
+        'saved_ids': saved_ids,
         'query_model': query_model,
         'judge_model': judge_model,
         'errors': errors,
