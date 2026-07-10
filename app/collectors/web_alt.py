@@ -116,8 +116,13 @@ async def searchapi_search(api_key: str, query: str, *, keyword: str | None = No
 
 
 async def tavily_search(api_key: str, query: str, *, keyword: str | None = None, city: str | None = None, num: int = 10) -> list[dict]:
+    # Tavily's current API expects the key in the Authorization header.
+    # Older examples accepted api_key in the JSON body; using Bearer is the safer/current method.
+    headers = {
+        'Authorization': f'Bearer {api_key}',
+        'Content-Type': 'application/json',
+    }
     payload = {
-        'api_key': api_key,
         'query': query,
         'max_results': min(max(num, 1), 20),
         'search_depth': 'basic',
@@ -125,7 +130,7 @@ async def tavily_search(api_key: str, query: str, *, keyword: str | None = None,
         'include_raw_content': False,
     }
     async with httpx.AsyncClient(timeout=30) as client:
-        r = await client.post('https://api.tavily.com/search', json=payload)
+        r = await client.post('https://api.tavily.com/search', headers=headers, json=payload)
         r.raise_for_status()
         data = r.json()
     leads = []
