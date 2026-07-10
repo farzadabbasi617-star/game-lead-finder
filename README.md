@@ -84,6 +84,7 @@ uvicorn app.main:app --host 0.0.0.0 --port $PORT
 ```env
 DATABASE_URL=postgresql+psycopg://...
 ADMIN_TOKEN=یک-توکن-سخت-و-خصوصی
+PYTHON_VERSION=3.12.4
 GOOGLE_PLACES_API_KEY=اختیاری
 NESHAN_API_KEY=اختیاری
 SERPAPI_KEY=اختیاری
