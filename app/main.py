@@ -12,6 +12,7 @@ from openpyxl import Workbook
 from sqlalchemy import desc, or_, select
 from sqlalchemy.orm import Session
 
+from app.collectors.ai_search import run_ai_search
 from app.collectors.enrichment import run_enrichment
 from app.collectors.orchestrator import run_collector
 from app.config import get_settings
@@ -226,6 +227,7 @@ def index(
     q: str = Query(''),
     limit: int = Query(100, ge=1, le=500),
     token: str = Query('', description='رمز مدیریت'),
+    ai_msg: str = Query(''),
 ):
     stats = dashboard_stats(db)
     stmt = build_query(db, status, source, category, q)
@@ -281,6 +283,7 @@ def index(
         <div class="muted">همه مخاطبین، فروشگاه‌ها، پیج‌ها، کانال‌ها و آگهی‌های پیدا شده اینجا داخل دیتابیس ذخیره می‌شوند.</div>
         <div class="nav">
           <a class="active" href="/?token={h(token)}">بانک اطلاعاتی</a>
+          <a href="#ai-search">جستجوی هوشمند AI</a>
           <a href="#collector">جمع‌آوری مخاطب</a>
           <a href="#settings">کلمات و شهرها</a>
           <a href="#reports">گزارش اجراها</a>
@@ -297,6 +300,22 @@ def index(
       <div class="stat">پیام داده شده<b>{stats['messaged']}</b></div>
       <div class="stat">جواب داده<b>{stats['replied']}</b></div>
       <div class="stat">ثبت‌نام کرده<b>{stats['registered']}</b></div>
+    </div>
+
+    {f'<div class="card hint">{h(ai_msg)}</div>' if ai_msg else ''}
+
+    <div id="ai-search" class="card">
+      <div class="section-title"><h3>جستجوی هوشمند با هوش مصنوعی</h3><span class="pill">AI + Tavily + حذف تکراری سختگیرانه</span></div>
+      <form class="inline" method="post" action="/ai-search">
+        <input type="password" name="token" placeholder="رمز مدیریت" value="{h(token)}">
+        <input name="topic" placeholder="مثلاً فروش سی پی کالاف" required style="min-width:260px">
+        <input name="city" placeholder="شهر؛ اختیاری" value="تهران" style="width:120px">
+        <label>تعداد query <input type="number" name="max_queries" value="6" min="1" max="20" style="width:80px"></label>
+        <label>نتیجه هر query <input type="number" name="results_per_query" value="5" min="1" max="20" style="width:80px"></label>
+        <label>حداقل امتیاز AI <input type="number" name="min_score" value="60" min="0" max="100" style="width:80px"></label>
+        <button>سرچ کن و لیدهای خوب را ذخیره کن</button>
+      </form>
+      <div class="hint">هوش مصنوعی اول عبارت‌های جستجوی بهتر می‌سازد، Tavily سرچ واقعی انجام می‌دهد، سپس AI نتایج نامرتبط را حذف می‌کند. فقط موارد تأییدشده و غیرتکراری در بانک ذخیره می‌شوند. اگر یک مدل لیمیت بخورد، خودکار مدل/سرویس بعدی امتحان می‌شود.</div>
     </div>
 
     <div id="collector" class="card">
@@ -376,6 +395,38 @@ def index(
     </div>
     '''
     return page('بانک اطلاعاتی فروشنده‌های گیمینگ', body)
+
+
+@app.post('/ai-search')
+async def ai_search_now(
+    db: Session = Depends(get_db),
+    token: Annotated[str, Form()] = '',
+    topic: Annotated[str, Form()] = '',
+    city: Annotated[str, Form()] = '',
+    max_queries: Annotated[int, Form()] = 6,
+    results_per_query: Annotated[int, Form()] = 5,
+    min_score: Annotated[int, Form()] = 60,
+):
+    check_token(token)
+    topic = topic.strip()
+    city = city.strip() or None
+    if not topic:
+        return RedirectResponse(url=f'/?token={quote_plus(token)}&ai_msg={quote_plus("موضوع جستجو خالی است")}', status_code=303)
+    result = await run_ai_search(
+        db,
+        topic=topic,
+        city=city,
+        max_queries=max_queries,
+        results_per_query=results_per_query,
+        min_score=min_score,
+    )
+    if not result.get('ok'):
+        msg = 'خطا در جستجوی هوشمند: ' + str(result.get('error', 'نامشخص'))
+    else:
+        msg = f"جستجوی هوشمند انجام شد: {result.get('found',0)} نتیجه بررسی شد، {result.get('approved',0)} مورد تأیید AI بود، {result.get('saved',0)} مخاطب جدید ذخیره شد، {result.get('duplicates',0)} مورد تکراری merge شد."
+        if result.get('errors'):
+            msg += ' هشدار: ' + ' | '.join(result.get('errors', [])[:2])[:350]
+    return RedirectResponse(url=f'/?token={quote_plus(token)}&ai_msg={quote_plus(msg)}#ai-search', status_code=303)
 
 
 @app.post('/run')

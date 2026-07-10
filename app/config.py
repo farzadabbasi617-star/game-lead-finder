@@ -19,6 +19,16 @@ class Settings(BaseSettings):
     serper_api_key: str | None = None
     searchapi_key: str | None = None
     tavily_api_key: str | None = None
+
+    # Optional AI providers. Multiple models can be comma-separated.
+    ai_provider_order: str | None = 'groq,openrouter,huggingface'
+    groq_api_key: str | None = None
+    groq_models: str | None = None
+    openrouter_api_key: str | None = None
+    openrouter_models: str | None = None
+    huggingface_api_key: str | None = None
+    huggingface_models: str | None = None
+
     default_city: str = 'تهران'
 
 
