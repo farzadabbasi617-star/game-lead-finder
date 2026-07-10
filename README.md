@@ -337,28 +337,6 @@ site:balad.ir فروشگاه کنسول تهران
 
 ---
 
-## 13) Docker
-
-اجرای Docker:
-
-```bash
-docker build -t game-lead-finder .
-docker run --env-file .env -p 8000:8000 game-lead-finder
-```
-
----
-
-## 14) فایل نمونه Import
-
-یک نمونه CSV داخل پروژه هست:
-
-```text
-samples/import-sample.csv
-```
-
-
----
-
 ## 15) اگر SerpAPI در دسترس نبود
 
 SerpAPI برای بعضی کشورها یا ثبت‌نام‌ها ممکن است شماره/پرداخت بخواهد. پروژه به SerpAPI وابسته نیست و این جایگزین‌ها را هم پشتیبانی می‌کند:
