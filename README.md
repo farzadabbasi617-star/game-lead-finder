@@ -378,3 +378,20 @@ HUGGINGFACE_MODELS=Qwen/Qwen2.5-7B-Instruct,mistralai/Mistral-7B-Instruct-v0.3,H
 ```
 
 اگر یک provider یا مدل limit بخورد یا خطا بدهد، سیستم خودکار مدل بعدی را امتحان می‌کند.
+
+---
+
+## سرچ مستقیم با OpenRouter AI بدون Tavily
+
+این بخش از `TAVILY_API_KEY` استفاده نمی‌کند و فقط با Web Search خود OpenRouter کار می‌کند.
+
+Env لازم:
+
+```env
+OPENROUTER_API_KEY=...
+OPENROUTER_WEB_MODELS=google/gemini-2.0-flash-exp:free,meta-llama/llama-3.2-3b-instruct:free,qwen/qwen-2.5-7b-instruct:free
+```
+
+داخل برنامه از بخش «سرچ مستقیم با هوش مصنوعی OpenRouter» استفاده کن. اگر یک مدل limit بخورد یا web plugin را قبول نکند، مدل بعدی امتحان می‌شود.
+
+نکته: Groq و HuggingFace در این پروژه سرچ وب مستقیم ندارند؛ فقط برای ساخت query یا تحلیل نتیجه کاربرد دارند.

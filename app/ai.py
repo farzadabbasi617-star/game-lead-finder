@@ -272,3 +272,148 @@ score عدد 0 تا 100 باشد.
     except Exception as exc:
         # Safe fallback: do not save blindly when AI filter is unavailable.
         return [], None, str(exc)
+
+
+def openrouter_models_for_web() -> list[AIModel]:
+    key = _env_any('OPENROUTER_API_KEY', 'OPEN_ROUTER_API_KEY')
+    if not key:
+        return []
+    models = _split_models(_env_any('OPENROUTER_WEB_MODELS', 'OPENROUTER_MODELS', 'OPENROUTER_MODEL'), [
+        'google/gemini-2.0-flash-exp:free',
+        'meta-llama/llama-3.2-3b-instruct:free',
+        'qwen/qwen-2.5-7b-instruct:free',
+    ])
+    return [AIModel('openrouter_web', m, key, 'https://openrouter.ai/api/v1') for m in models]
+
+
+async def openrouter_web_search_leads(
+    *,
+    topic: str,
+    city: str | None = None,
+    max_results: int = 10,
+    min_score: int = 60,
+) -> tuple[list[dict[str, Any]], dict[str, str] | None, str | None]:
+    """Use OpenRouter's web plugin directly. No Tavily or external search API.
+
+    This only works when OpenRouter's web search plugin is available for the account/model.
+    Groq/HuggingFace do not have native web search here, so they are not used for this function.
+    """
+    chain = openrouter_models_for_web()
+    if not chain:
+        return [], None, 'OPENROUTER_API_KEY تنظیم نشده است.'
+
+    max_results = min(max(max_results, 1), 30)
+    min_score = min(max(min_score, 0), 100)
+    city_text = city or 'ایران'
+
+    system = (
+        'تو یک عامل جستجوی وب برای پیدا کردن لیدهای عمومی و قانونی حوزه گیم هستی. '
+        'باید از جستجوی وب استفاده کنی و فقط فروشنده‌ها/فروشگاه‌ها/پیج‌ها/کانال‌ها/آگهی‌های واقعی و مرتبط را برگردانی. '
+        'اطلاعات خصوصی یا مخفی را حدس نزن. اگر شماره/سایت/اینستاگرام/تلگرام عمومی ندیدی، null بگذار. '
+        'هیچ لینک خیالی نساز. فقط JSON معتبر بده.'
+    )
+    user = f'''
+موضوع جستجو: {topic}
+شهر/محدوده: {city_text}
+حداکثر لید قابل برگشت: {max_results}
+حداقل امتیاز ذخیره: {min_score}
+
+وب را برای فروشنده‌های عمومی مرتبط جستجو کن. منابع خوب:
+- سایت‌های فروشگاهی
+- کانال‌های عمومی تلگرام
+- پیج‌های عمومی اینستاگرام
+- آگهی‌های عمومی دیوار/شیپور
+- بلد/نشان/گوگل‌مپ/ترب در صورت مرتبط بودن
+
+هر نتیجه باید فروشنده/کسب‌وکار/صفحه قابل ارتباط باشد، نه مقاله، خبر، دانلود، آموزش، هک یا چیت.
+
+خروجی دقیقاً JSON با این ساختار باشد:
+{{
+  "leads": [
+    {{
+      "title": "نام فروشنده یا عنوان صفحه",
+      "url": "لینک عمومی اصلی",
+      "description": "خلاصه کوتاه فعالیت",
+      "category": "مثلاً سی‌پی کالاف، اکانت، گیفت کارت، فروشگاه کنسول، گیم‌نت",
+      "city": "شهر یا null",
+      "phone": "شماره عمومی یا null",
+      "website": "سایت رسمی یا null",
+      "instagram": "لینک پیج یا null",
+      "telegram": "لینک کانال/آیدی یا null",
+      "address": "آدرس عمومی یا null",
+      "score": 0,
+      "reason": "چرا این لید مرتبط است"
+    }}
+  ]
+}}
+'''
+
+    errors: list[str] = []
+    async with httpx.AsyncClient(timeout=75) as client:
+        for item in chain:
+            try:
+                headers = {
+                    'Authorization': f'Bearer {item.api_key}',
+                    'Content-Type': 'application/json',
+                    'HTTP-Referer': 'https://game-lead-finder.onrender.com',
+                    'X-Title': 'Game Lead Finder',
+                }
+                # OpenRouter supports web search via the web plugin. This is intentionally not Tavily.
+                payload = {
+                    'model': item.model,
+                    'messages': [
+                        {'role': 'system', 'content': system},
+                        {'role': 'user', 'content': user},
+                    ],
+                    'temperature': 0.15,
+                    'max_tokens': 2500,
+                    'plugins': [{'id': 'web', 'max_results': max_results}],
+                    'response_format': {'type': 'json_object'},
+                }
+                r = await client.post(f'{item.base_url}/chat/completions', headers=headers, json=payload)
+                if r.status_code in {400, 422} and 'response_format' in r.text:
+                    payload.pop('response_format', None)
+                    r = await client.post(f'{item.base_url}/chat/completions', headers=headers, json=payload)
+                if r.status_code in {400, 401, 403, 404, 408, 409, 422, 429, 500, 502, 503, 504}:
+                    errors.append(f'{item.model}: HTTP {r.status_code} {r.text[:220]}')
+                    continue
+                r.raise_for_status()
+                data = r.json()
+                content = (data.get('choices') or [{}])[0].get('message', {}).get('content', '')
+                parsed = parse_json_object(content)
+                raw_leads = parsed.get('leads', [])
+                leads: list[dict[str, Any]] = []
+                for lead in raw_leads:
+                    if not isinstance(lead, dict):
+                        continue
+                    score = int(lead.get('score') or 0)
+                    if score < min_score:
+                        continue
+                    url = str(lead.get('url') or '').strip()
+                    title = str(lead.get('title') or '').strip()
+                    if not url or not title:
+                        continue
+                    leads.append({
+                        'source': 'openrouter_web_ai',
+                        'entity_type': 'ai_web_lead',
+                        'title': title[:500],
+                        'url': url,
+                        'description': lead.get('description'),
+                        'category': lead.get('category'),
+                        'city': lead.get('city') or city,
+                        'phone': lead.get('phone'),
+                        'website': lead.get('website'),
+                        'instagram': lead.get('instagram'),
+                        'telegram': lead.get('telegram'),
+                        'address': lead.get('address'),
+                        'score': max(0, min(score, 100)),
+                        'notes': 'AI Web Search: ' + str(lead.get('reason') or '').strip(),
+                        'keyword': topic,
+                        'query': topic,
+                    })
+                return leads[:max_results], {'provider': 'openrouter_web', 'model': item.model}, None
+            except Exception as exc:
+                errors.append(f'{item.model}: {str(exc)[:220]}')
+                continue
+
+    return [], None, 'همه مدل‌های OpenRouter Web Search خطا دادند یا limit خوردند: ' + ' | '.join(errors[-6:])

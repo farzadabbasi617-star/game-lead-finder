@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 
 from app.collectors.ai_search import run_ai_search
 from app.collectors.enrichment import run_enrichment
+from app.collectors.openrouter_web_search import run_openrouter_web_search
 from app.collectors.orchestrator import run_collector
 from app.config import get_settings
 from app.db.models import City, CrawlerRun, Keyword, Lead
@@ -283,7 +284,8 @@ def index(
         <div class="muted">همه مخاطبین، فروشگاه‌ها، پیج‌ها، کانال‌ها و آگهی‌های پیدا شده اینجا داخل دیتابیس ذخیره می‌شوند.</div>
         <div class="nav">
           <a class="active" href="/?token={h(token)}">بانک اطلاعاتی</a>
-          <a href="#ai-search">جستجوی هوشمند AI</a>
+          <a href="#openrouter-web-search">سرچ مستقیم AI</a>
+          <a href="#ai-search">AI + Tavily</a>
           <a href="#collector">جمع‌آوری مخاطب</a>
           <a href="#settings">کلمات و شهرها</a>
           <a href="#reports">گزارش اجراها</a>
@@ -303,6 +305,19 @@ def index(
     </div>
 
     {f'<div class="card hint">{h(ai_msg)}</div>' if ai_msg else ''}
+
+    <div id="openrouter-web-search" class="card">
+      <div class="section-title"><h3>سرچ مستقیم با هوش مصنوعی OpenRouter</h3><span class="pill">بدون Tavily</span></div>
+      <form class="inline" method="post" action="/openrouter-web-search">
+        <input type="password" name="token" placeholder="رمز مدیریت" value="{h(token)}">
+        <input name="topic" placeholder="مثلاً خرید اکانت کلش رویال" required style="min-width:280px">
+        <input name="city" placeholder="شهر؛ اختیاری" value="تهران" style="width:120px">
+        <label>حداکثر لید <input type="number" name="max_results" value="10" min="1" max="30" style="width:80px"></label>
+        <label>حداقل امتیاز <input type="number" name="min_score" value="60" min="0" max="100" style="width:80px"></label>
+        <button>فقط با AI سرچ کن و ذخیره کن</button>
+      </form>
+      <div class="hint">این بخش از Tavily استفاده نمی‌کند و فقط با قابلیت Web Search خود OpenRouter کار می‌کند. Groq و HuggingFace سرچ وب مستقیم ندارند؛ اگر OpenRouter web search یا مدل‌های رایگان limit بخورند، برنامه مدل بعدی OpenRouter را امتحان می‌کند. شماره/سایت/پیج فقط وقتی ذخیره می‌شود که عمومی پیدا شود.</div>
+    </div>
 
     <div id="ai-search" class="card">
       <div class="section-title"><h3>جستجوی هوشمند با هوش مصنوعی</h3><span class="pill">AI + Tavily + حذف تکراری سختگیرانه</span></div>
@@ -395,6 +410,35 @@ def index(
     </div>
     '''
     return page('بانک اطلاعاتی فروشنده‌های گیمینگ', body)
+
+
+@app.post('/openrouter-web-search')
+async def openrouter_web_search_now(
+    db: Session = Depends(get_db),
+    token: Annotated[str, Form()] = '',
+    topic: Annotated[str, Form()] = '',
+    city: Annotated[str, Form()] = '',
+    max_results: Annotated[int, Form()] = 10,
+    min_score: Annotated[int, Form()] = 60,
+):
+    check_token(token)
+    topic = topic.strip()
+    city = city.strip() or None
+    if not topic:
+        return RedirectResponse(url=f'/?token={quote_plus(token)}&ai_msg={quote_plus("موضوع جستجو خالی است")}', status_code=303)
+    result = await run_openrouter_web_search(
+        db,
+        topic=topic,
+        city=city,
+        max_results=max_results,
+        min_score=min_score,
+    )
+    if not result.get('ok'):
+        msg = 'خطا در سرچ مستقیم AI: ' + str(result.get('error', 'نامشخص'))
+    else:
+        used_model = (result.get('model') or {}).get('model') if isinstance(result.get('model'), dict) else ''
+        msg = f"سرچ مستقیم AI انجام شد: {result.get('found',0)} لید پیدا شد، {result.get('saved',0)} مخاطب جدید ذخیره شد، {result.get('duplicates',0)} مورد تکراری merge شد. مدل: {used_model}"
+    return RedirectResponse(url=f'/?token={quote_plus(token)}&ai_msg={quote_plus(msg)}#openrouter-web-search', status_code=303)
 
 
 @app.post('/ai-search')
