@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: game-lead-finder
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: ADMIN_TOKEN
+        sync: false
+      - key: GOOGLE_PLACES_API_KEY
+        sync: false
+      - key: NESHAN_API_KEY
+        sync: false
+      - key: SERPAPI_KEY
+        sync: false
