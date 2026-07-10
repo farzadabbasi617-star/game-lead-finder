@@ -389,9 +389,16 @@ Env لازم:
 
 ```env
 OPENROUTER_API_KEY=...
-OPENROUTER_WEB_MODELS=google/gemini-2.0-flash-exp:free,meta-llama/llama-3.2-3b-instruct:free,qwen/qwen-2.5-7b-instruct:free
+OPENROUTER_WEB_MODELS=auto
 ```
 
 داخل برنامه از بخش «سرچ مستقیم با هوش مصنوعی OpenRouter» استفاده کن. اگر یک مدل limit بخورد یا web plugin را قبول نکند، مدل بعدی امتحان می‌شود.
 
 نکته: Groq و HuggingFace در این پروژه سرچ وب مستقیم ندارند؛ فقط برای ساخت query یا تحلیل نتیجه کاربرد دارند.
+
+برای اینکه برنامه خودش مدل‌های رایگان فعلی OpenRouter را کشف کند، مقدار زیر را بگذار:
+
+```env
+OPENROUTER_WEB_MODELS=auto
+OPENROUTER_AUTO_MODEL_LIMIT=18
+```

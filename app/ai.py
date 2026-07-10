@@ -274,16 +274,104 @@ score عدد 0 تا 100 باشد.
         return [], None, str(exc)
 
 
-def openrouter_models_for_web() -> list[AIModel]:
-    key = _env_any('OPENROUTER_API_KEY', 'OPEN_ROUTER_API_KEY')
-    if not key:
+def _openrouter_api_key() -> str | None:
+    return _env_any('OPENROUTER_API_KEY', 'OPEN_ROUTER_API_KEY')
+
+
+def _is_env_auto(value: str | None) -> bool:
+    return not value or value.strip().lower() in {'auto', 'true', '1', 'yes'}
+
+
+def _default_openrouter_web_fallback_models() -> list[str]:
+    # Static fallback only. The app also auto-discovers current free models from OpenRouter.
+    return [
+        'deepseek/deepseek-chat-v3-0324:free',
+        'deepseek/deepseek-r1-0528:free',
+        'meta-llama/llama-3.3-70b-instruct:free',
+        'mistralai/mistral-7b-instruct:free',
+        'qwen/qwen3-14b:free',
+        'qwen/qwen3-32b:free',
+        'google/gemma-3-27b-it:free',
+        'nousresearch/deephermes-3-llama-3-8b-preview:free',
+    ]
+
+
+def _models_from_env_for_web(api_key: str) -> list[AIModel]:
+    raw = _env_any('OPENROUTER_WEB_MODELS')
+    if _is_env_auto(raw):
+        model_ids: list[str] = []
+    else:
+        model_ids = _split_models(raw, [])
+    return [AIModel('openrouter_web_env', m, api_key, 'https://openrouter.ai/api/v1') for m in model_ids]
+
+
+async def _discover_openrouter_free_models(client: httpx.AsyncClient, api_key: str, limit: int = 18) -> list[AIModel]:
+    """Fetch currently available free OpenRouter models because free slugs change often."""
+    headers = {'Authorization': f'Bearer {api_key}', 'Accept': 'application/json'}
+    try:
+        r = await client.get('https://openrouter.ai/api/v1/models', headers=headers)
+        r.raise_for_status()
+        payload = r.json()
+    except Exception:
         return []
-    models = _split_models(_env_any('OPENROUTER_WEB_MODELS', 'OPENROUTER_MODELS', 'OPENROUTER_MODEL'), [
-        'google/gemini-2.0-flash-exp:free',
-        'meta-llama/llama-3.2-3b-instruct:free',
-        'qwen/qwen-2.5-7b-instruct:free',
-    ])
-    return [AIModel('openrouter_web', m, key, 'https://openrouter.ai/api/v1') for m in models]
+
+    discovered: list[tuple[int, str]] = []
+    for model in payload.get('data', []) or []:
+        model_id = model.get('id')
+        if not model_id or ':free' not in model_id:
+            continue
+        pricing = model.get('pricing') or {}
+        prompt_price = str(pricing.get('prompt', '0'))
+        completion_price = str(pricing.get('completion', '0'))
+        if prompt_price not in {'0', '0.0', '0.000000'} or completion_price not in {'0', '0.0', '0.000000'}:
+            continue
+        context = int(model.get('context_length') or 0)
+        discovered.append((context, model_id))
+
+    discovered.sort(reverse=True)
+    out: list[AIModel] = []
+    seen: set[str] = set()
+    for _, model_id in discovered:
+        if model_id in seen:
+            continue
+        seen.add(model_id)
+        out.append(AIModel('openrouter_web_auto', model_id, api_key, 'https://openrouter.ai/api/v1'))
+        if len(out) >= limit:
+            break
+    return out
+
+
+def _merge_model_chain(*chains: list[AIModel]) -> list[AIModel]:
+    out: list[AIModel] = []
+    seen: set[str] = set()
+    for chain in chains:
+        for item in chain:
+            if item.model in seen:
+                continue
+            seen.add(item.model)
+            out.append(item)
+    return out
+
+
+def _brief_openrouter_error(model: str, status_code: int | None = None, text: str | None = None, exc: Exception | None = None) -> str:
+    if exc:
+        return f'{model}: {str(exc)[:160]}'
+    message = text or ''
+    try:
+        data = json.loads(message)
+        message = ((data.get('error') or {}).get('message') or message)
+    except Exception:
+        pass
+    message = re.sub(r'"user_id"\s*:\s*"[^"]+"', '', message)
+    message = re.sub(r'user_[A-Za-z0-9_\-]+', 'user_***', message)
+    message = re.sub(r'\s+', ' ', message).strip()
+    if status_code == 429:
+        return f'{model}: لیمیت/شلوغی موقت مدل'
+    if status_code == 404:
+        return f'{model}: این مدل endpoint رایگان فعال ندارد'
+    if status_code in {401, 403}:
+        return f'{model}: کلید OpenRouter یا دسترسی Web Search مشکل دارد'
+    return f'{model}: HTTP {status_code} {message[:160]}'
 
 
 async def openrouter_web_search_leads(
@@ -293,13 +381,9 @@ async def openrouter_web_search_leads(
     max_results: int = 10,
     min_score: int = 60,
 ) -> tuple[list[dict[str, Any]], dict[str, str] | None, str | None]:
-    """Use OpenRouter's web plugin directly. No Tavily or external search API.
-
-    This only works when OpenRouter's web search plugin is available for the account/model.
-    Groq/HuggingFace do not have native web search here, so they are not used for this function.
-    """
-    chain = openrouter_models_for_web()
-    if not chain:
+    """Use OpenRouter's web plugin directly. No Tavily or external search API."""
+    api_key = _openrouter_api_key()
+    if not api_key:
         return [], None, 'OPENROUTER_API_KEY تنظیم نشده است.'
 
     max_results = min(max(max_results, 1), 30)
@@ -350,6 +434,14 @@ async def openrouter_web_search_leads(
 
     errors: list[str] = []
     async with httpx.AsyncClient(timeout=75) as client:
+        env_chain = _models_from_env_for_web(api_key)
+        auto_limit = int(os.getenv('OPENROUTER_AUTO_MODEL_LIMIT', '18'))
+        auto_chain = await _discover_openrouter_free_models(client, api_key, limit=auto_limit)
+        fallback_chain = [AIModel('openrouter_web_fallback', m, api_key, 'https://openrouter.ai/api/v1') for m in _default_openrouter_web_fallback_models()]
+        chain = _merge_model_chain(env_chain, auto_chain, fallback_chain)
+        if not chain:
+            return [], None, 'هیچ مدل رایگان قابل استفاده‌ای از OpenRouter پیدا نشد. OPENROUTER_WEB_MODELS را روی auto بگذار.'
+
         for item in chain:
             try:
                 headers = {
@@ -358,7 +450,6 @@ async def openrouter_web_search_leads(
                     'HTTP-Referer': 'https://game-lead-finder.onrender.com',
                     'X-Title': 'Game Lead Finder',
                 }
-                # OpenRouter supports web search via the web plugin. This is intentionally not Tavily.
                 payload = {
                     'model': item.model,
                     'messages': [
@@ -375,7 +466,7 @@ async def openrouter_web_search_leads(
                     payload.pop('response_format', None)
                     r = await client.post(f'{item.base_url}/chat/completions', headers=headers, json=payload)
                 if r.status_code in {400, 401, 403, 404, 408, 409, 422, 429, 500, 502, 503, 504}:
-                    errors.append(f'{item.model}: HTTP {r.status_code} {r.text[:220]}')
+                    errors.append(_brief_openrouter_error(item.model, r.status_code, r.text))
                     continue
                 r.raise_for_status()
                 data = r.json()
@@ -411,9 +502,9 @@ async def openrouter_web_search_leads(
                         'keyword': topic,
                         'query': topic,
                     })
-                return leads[:max_results], {'provider': 'openrouter_web', 'model': item.model}, None
+                return leads[:max_results], {'provider': item.provider, 'model': item.model}, None
             except Exception as exc:
-                errors.append(f'{item.model}: {str(exc)[:220]}')
+                errors.append(_brief_openrouter_error(item.model, exc=exc))
                 continue
 
-    return [], None, 'همه مدل‌های OpenRouter Web Search خطا دادند یا limit خوردند: ' + ' | '.join(errors[-6:])
+    return [], None, 'مدل‌های رایگان OpenRouter فعلاً جواب ندادند. خلاصه خطاها: ' + ' | '.join(errors[-8:])
