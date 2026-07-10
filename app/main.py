@@ -24,8 +24,11 @@ from app.db.session import Base, engine, get_db
 from app.repository import dashboard_stats, init_seed_data, upsert_lead
 from app.scoring import detect_category, score_lead
 from app.utils import public_invite_message
+from app.crm import migrate_crm_columns, seed_crm_data, can_use_provider, increment_usage
+from app.crm_routes import router as crm_router
 
 app = FastAPI(title='بانک اطلاعاتی لیدهای گیمینگ')
+app.include_router(crm_router)
 
 STATUS_LABELS = {
     'new': 'در انتظار بررسی',
@@ -159,7 +162,10 @@ def startup():
     Base.metadata.create_all(bind=engine)
     db = next(get_db())
     try:
+        migrate_crm_columns(db)
+        Base.metadata.create_all(bind=engine)
         init_seed_data(db)
+        seed_crm_data(db)
     finally:
         db.close()
 
@@ -408,6 +414,9 @@ def index(
           <a href="#collector">جمع‌آوری مخاطب</a>
           <a href="#settings">کلمات و شهرها</a>
           <a href="#reports">گزارش اجراها</a>
+          <a href="/crm?token={h(token)}">CRM پیشرفته</a>
+          <a href="/crm/queue?token={h(token)}">صف سرچ</a>
+          <a href="/crm/templates?token={h(token)}">قالب پیام</a>
         </div>
         <label class="remember"><input type="checkbox" id="remember-token"> رمز مدیریت را در این مرورگر به خاطر بسپار</label>
       </div>
@@ -527,6 +536,16 @@ def index(
       <div class="muted">ستون‌های قابل قبول: title,url,source,city,phone,website,instagram,telegram,address,description,category</div>
     </div>
 
+    <div id="crm-shortcuts" class="card">
+      <div class="section-title"><h3>ابزارهای CRM و مدیریت پروژه</h3><span class="pill">جدید</span></div>
+      <a class="action" href="/crm?token={h(token)}">داشبورد CRM</a>
+      <a class="action" href="/crm/templates?token={h(token)}">قالب‌های پیام</a>
+      <a class="action" href="/crm/queue?token={h(token)}">صف جستجو</a>
+      <a class="action" href="/crm/rules?token={h(token)}">Blacklist / Whitelist</a>
+      <a class="action" href="/crm/api-status?token={h(token)}">وضعیت API و مصرف</a>
+      <div class="muted" style="margin-top:8px">صفحه جزئیات هر مخاطب از دکمه «جزئیات و تاریخچه» داخل جدول باز می‌شود.</div>
+    </div>
+
     <div id="reports" class="card" style="overflow:auto">
       <h3>گزارش آخرین اجراهای جمع‌آوری</h3>
       <table><thead><tr><th>منبع</th><th>عبارت جستجو</th><th>تعداد پیدا شده</th><th>جدید</th><th>خطا</th><th>زمان شروع</th></tr></thead><tbody>{run_rows}</tbody></table>
@@ -549,6 +568,10 @@ async def openrouter_web_search_now(
     city = city.strip() or None
     if not topic:
         return RedirectResponse(url=f'/?token={quote_plus(token)}&ai_msg={quote_plus("موضوع جستجو خالی است")}', status_code=303)
+    ok, usage_msg = can_use_provider(db, 'openrouter')
+    if not ok:
+        return RedirectResponse(url=f'/?token={quote_plus(token)}&ai_msg={quote_plus(usage_msg)}#openrouter-web-search', status_code=303)
+    increment_usage(db, 'openrouter')
     result = await run_openrouter_web_search(
         db,
         topic=topic,
@@ -580,6 +603,10 @@ async def ai_search_now(
     city = city.strip() or None
     if not topic:
         return RedirectResponse(url=f'/?token={quote_plus(token)}&ai_msg={quote_plus("موضوع جستجو خالی است")}', status_code=303)
+    ok, usage_msg = can_use_provider(db, 'tavily')
+    if not ok:
+        return RedirectResponse(url=f'/?token={quote_plus(token)}&ai_msg={quote_plus(usage_msg)}#ai-search', status_code=303)
+    increment_usage(db, 'tavily')
     result = await run_ai_search(
         db,
         topic=topic,
