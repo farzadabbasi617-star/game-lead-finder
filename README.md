@@ -19,6 +19,7 @@ MVP قانونی برای ساخت لیست لیدهای حوزه گیم: فرو
   - Google Places API برای Google Maps
   - Neshan Search API برای نشان
   - SerpAPI برای سرچ وب، تلگرام عمومی، اینستاگرام عمومی، بلد، دیوار، شیپور، ترب از طریق نتایج عمومی گوگل
+  - Google CSE، Brave Search، Serper، SearchAPI و Tavily به عنوان جایگزین‌های SerpAPI
 
 > نکته: پروژه عمداً وارد لاگین، کپچا، پیام خودکار، استخراج اطلاعات خصوصی یا دور زدن محدودیت پلتفرم‌ها نمی‌شود.
 
@@ -88,6 +89,12 @@ PYTHON_VERSION=3.12.4
 GOOGLE_PLACES_API_KEY=اختیاری
 NESHAN_API_KEY=اختیاری
 SERPAPI_KEY=اختیاری
+GOOGLE_CSE_API_KEY=اختیاری
+GOOGLE_CSE_ID=اختیاری
+BRAVE_SEARCH_API_KEY=اختیاری
+SERPER_API_KEY=اختیاری
+SEARCHAPI_KEY=اختیاری
+TAVILY_API_KEY=اختیاری
 ```
 
 فایل `render.yaml` هم داخل پروژه هست، اگر خواستی از Blueprint استفاده کنی.
@@ -122,7 +129,7 @@ Endpoint استفاده‌شده:
 https://api.neshan.org/v1/search?term=...&lat=...&lng=...
 ```
 
-### SerpAPI
+### SerpAPI یا جایگزین‌ها
 برای سرچ وب عمومی و پیدا کردن لینک‌های:
 
 - `t.me/...`
@@ -133,10 +140,26 @@ https://api.neshan.org/v1/search?term=...&lat=...&lng=...
 - `torob.com/...`
 - سایت‌های مستقل
 
-متغیر:
+متغیرهای قابل استفاده؛ فقط یکی از این سرویس‌ها کافی است:
 
 ```env
 SERPAPI_KEY=...
+
+# Google Programmable Search Engine
+GOOGLE_CSE_API_KEY=...
+GOOGLE_CSE_ID=...
+
+# Brave Search
+BRAVE_SEARCH_API_KEY=...
+
+# Serper.dev
+SERPER_API_KEY=...
+
+# SearchAPI.io
+SEARCHAPI_KEY=...
+
+# Tavily
+TAVILY_API_KEY=...
 ```
 
 اگر هیچ API Key ست نکنی، پنل و دیتابیس کار می‌کنند. گزینه `Search Links رایگان` هم بدون API Key لینک‌های جستجوی دستی می‌سازد؛ اما برای جمع‌آوری لید واقعی و خودکار، حداقل یکی از API keyها لازم است.
@@ -332,3 +355,18 @@ docker run --env-file .env -p 8000:8000 game-lead-finder
 ```text
 samples/import-sample.csv
 ```
+
+
+---
+
+## 15) اگر SerpAPI در دسترس نبود
+
+SerpAPI برای بعضی کشورها یا ثبت‌نام‌ها ممکن است شماره/پرداخت بخواهد. پروژه به SerpAPI وابسته نیست و این جایگزین‌ها را هم پشتیبانی می‌کند:
+
+- `GOOGLE_CSE_API_KEY` + `GOOGLE_CSE_ID`
+- `BRAVE_SEARCH_API_KEY`
+- `SERPER_API_KEY`
+- `SEARCHAPI_KEY`
+- `TAVILY_API_KEY`
+
+داخل پنل گزینه `Web Search APIها` همه providerهای فعال را اجرا می‌کند. اگر فقط Brave را ست کرده باشی، فقط Brave اجرا می‌شود؛ اگر Google CSE و Brave هر دو ست باشند، هر دو اجرا می‌شوند.

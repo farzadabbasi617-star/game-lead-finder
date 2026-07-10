@@ -7,6 +7,7 @@ from app.collectors.google_places import google_places_text_search
 from app.collectors.neshan import neshan_search
 from app.collectors.serpapi import build_web_queries, serpapi_search
 from app.collectors.search_links import build_search_link_leads
+from app.collectors.web_alt import brave_search, google_cse_search, searchapi_search, serper_search, tavily_search
 from app.db.models import City, Keyword
 from app.repository import finish_run, start_run, upsert_lead
 
@@ -80,24 +81,39 @@ async def run_collector(
                     summary['errors'].append({'source': 'neshan', 'query': query, 'error': msg})
                     finish_run(db, run, 0, 0, msg)
 
-            # Web search via SerpAPI - Telegram/Instagram/Balad/Divar/Sheypoor/Torob + general websites
-            if source in {'all', 'web', 'serpapi'} and settings.serpapi_key:
+            # Web search APIs - Telegram/Instagram/Balad/Divar/Sheypoor/Torob + general websites
+            if source in {'all', 'web', 'serpapi', 'google_cse', 'brave', 'serper', 'searchapi', 'tavily'}:
                 for query in build_web_queries(kw.keyword, city.name):
-                    run = start_run(db, 'serpapi', query)
-                    summary['runs'] += 1
-                    try:
-                        items = await serpapi_search(settings.serpapi_key, query, keyword=kw.keyword, city=city.name, num=result_limit)
-                        new_count = await save_many('serpapi', query, items)
-                        finish_run(db, run, len(items), new_count)
-                    except Exception as exc:
-                        msg = str(exc)
-                        summary['errors'].append({'source': 'serpapi', 'query': query, 'error': msg})
-                        finish_run(db, run, 0, 0, msg)
+                    providers = []
+                    if source in {'all', 'web', 'serpapi'} and settings.serpapi_key:
+                        providers.append(('serpapi', lambda q: serpapi_search(settings.serpapi_key, q, keyword=kw.keyword, city=city.name, num=result_limit)))
+                    if source in {'all', 'web', 'google_cse'} and settings.google_cse_api_key and settings.google_cse_id:
+                        providers.append(('google_cse', lambda q: google_cse_search(settings.google_cse_api_key, settings.google_cse_id, q, keyword=kw.keyword, city=city.name, num=result_limit)))
+                    if source in {'all', 'web', 'brave'} and settings.brave_search_api_key:
+                        providers.append(('brave', lambda q: brave_search(settings.brave_search_api_key, q, keyword=kw.keyword, city=city.name, num=result_limit)))
+                    if source in {'all', 'web', 'serper'} and settings.serper_api_key:
+                        providers.append(('serper', lambda q: serper_search(settings.serper_api_key, q, keyword=kw.keyword, city=city.name, num=result_limit)))
+                    if source in {'all', 'web', 'searchapi'} and settings.searchapi_key:
+                        providers.append(('searchapi', lambda q: searchapi_search(settings.searchapi_key, q, keyword=kw.keyword, city=city.name, num=result_limit)))
+                    if source in {'all', 'web', 'tavily'} and settings.tavily_api_key:
+                        providers.append(('tavily', lambda q: tavily_search(settings.tavily_api_key, q, keyword=kw.keyword, city=city.name, num=result_limit)))
 
-    if source != 'search_links' and not any([settings.google_places_api_key, settings.neshan_api_key, settings.serpapi_key]):
+                    for provider_name, provider_call in providers:
+                        run = start_run(db, provider_name, query)
+                        summary['runs'] += 1
+                        try:
+                            items = await provider_call(query)
+                            new_count = await save_many(provider_name, query, items)
+                            finish_run(db, run, len(items), new_count)
+                        except Exception as exc:
+                            msg = str(exc)
+                            summary['errors'].append({'source': provider_name, 'query': query, 'error': msg})
+                            finish_run(db, run, 0, 0, msg)
+
+    if source != 'search_links' and not any([settings.google_places_api_key, settings.neshan_api_key, settings.serpapi_key, settings.google_cse_api_key, settings.brave_search_api_key, settings.serper_api_key, settings.searchapi_key, settings.tavily_api_key]):
         summary['errors'].append({
             'source': 'config',
             'query': None,
-            'error': 'No collector API key configured. Set GOOGLE_PLACES_API_KEY, NESHAN_API_KEY or SERPAPI_KEY.'
+            'error': 'No collector API key configured. Set one of: GOOGLE_PLACES_API_KEY, NESHAN_API_KEY, SERPAPI_KEY, GOOGLE_CSE_API_KEY+GOOGLE_CSE_ID, BRAVE_SEARCH_API_KEY, SERPER_API_KEY, SEARCHAPI_KEY, TAVILY_API_KEY.'
         })
     return summary

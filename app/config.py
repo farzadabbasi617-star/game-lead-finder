@@ -13,6 +13,12 @@ class Settings(BaseSettings):
     google_places_api_key: str | None = None
     neshan_api_key: str | None = None
     serpapi_key: str | None = None
+    google_cse_api_key: str | None = None
+    google_cse_id: str | None = None
+    brave_search_api_key: str | None = None
+    serper_api_key: str | None = None
+    searchapi_key: str | None = None
+    tavily_api_key: str | None = None
     default_city: str = 'تهران'
 
 

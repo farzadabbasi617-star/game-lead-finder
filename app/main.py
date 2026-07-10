@@ -128,7 +128,7 @@ def index(
       <h3>اجرای کالکتور</h3>
       <form class="inline" method="post" action="/run">
         <input type="password" name="token" placeholder="ADMIN_TOKEN" value="{token}">
-        <select name="source"><option value="all">همه APIهای فعال</option><option value="google_places">Google Places</option><option value="neshan">Neshan</option><option value="web">Web/SerpAPI</option><option value="search_links">Search Links رایگان</option></select>
+        <select name="source"><option value="all">همه APIهای فعال</option><option value="google_places">Google Places</option><option value="neshan">Neshan</option><option value="web">Web Search APIها</option><option value="google_cse">Google CSE</option><option value="brave">Brave Search</option><option value="serper">Serper</option><option value="searchapi">SearchAPI</option><option value="tavily">Tavily</option><option value="serpapi">SerpAPI</option><option value="search_links">Search Links رایگان</option></select>
         <label>کلمه‌ها <input type="number" name="keyword_limit" value="5" min="1" max="30" style="width:80px"></label>
         <label>شهرها <input type="number" name="city_limit" value="3" min="1" max="30" style="width:80px"></label>
         <label>نتیجه <input type="number" name="result_limit" value="8" min="1" max="20" style="width:80px"></label>
