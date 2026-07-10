@@ -348,3 +348,33 @@ SerpAPI برای بعضی کشورها یا ثبت‌نام‌ها ممکن اس
 - `TAVILY_API_KEY`
 
 داخل پنل گزینه `Web Search APIها` همه providerهای فعال را اجرا می‌کند. اگر فقط Brave را ست کرده باشی، فقط Brave اجرا می‌شود؛ اگر Google CSE و Brave هر دو ست باشند، هر دو اجرا می‌شوند.
+
+---
+
+## جستجوی هوشمند با AI
+
+این قابلیت با ترکیب AI و Tavily کار می‌کند:
+
+1. AI از روی موضوع، queryهای جستجوی هدفمند می‌سازد.
+2. Tavily سرچ واقعی انجام می‌دهد.
+3. AI نتایج را بررسی می‌کند و فقط لیدهای مرتبط را تأیید می‌کند.
+4. سیستم با dedupe سختگیرانه، فقط مخاطبین غیرتکراری را در بانک اطلاعاتی ذخیره می‌کند.
+
+Envهای لازم:
+
+```env
+TAVILY_API_KEY=...
+
+AI_PROVIDER_ORDER=groq,openrouter,huggingface
+
+GROQ_API_KEY=...
+GROQ_MODELS=llama-3.1-8b-instant,llama-3.3-70b-versatile,gemma2-9b-it
+
+OPENROUTER_API_KEY=...
+OPENROUTER_MODELS=google/gemini-2.0-flash-exp:free,meta-llama/llama-3.2-3b-instruct:free,qwen/qwen-2.5-7b-instruct:free
+
+HUGGINGFACE_API_KEY=...
+HUGGINGFACE_MODELS=Qwen/Qwen2.5-7B-Instruct,mistralai/Mistral-7B-Instruct-v0.3,HuggingFaceH4/zephyr-7b-beta
+```
+
+اگر یک provider یا مدل limit بخورد یا خطا بدهد، سیستم خودکار مدل بعدی را امتحان می‌کند.
