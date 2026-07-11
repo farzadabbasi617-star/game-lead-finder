@@ -8,7 +8,6 @@ class Settings(BaseSettings):
 
     app_name: str = 'Game Lead Finder'
     database_url: str = 'sqlite:///./leads.db'
-    admin_token: str = 'change-this-token'
 
     google_places_api_key: str | None = None
     neshan_api_key: str | None = None

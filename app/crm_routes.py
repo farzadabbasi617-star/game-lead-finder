@@ -34,9 +34,7 @@ def h(v) -> str:
 
 
 def check_token(token: str | None = None):
-    settings = get_settings()
-    if settings.admin_token and token != settings.admin_token:
-        raise HTTPException(status_code=401, detail='رمز مدیریت اشتباه است')
+    pass
 
 
 def fmt_dt(value) -> str:
@@ -68,7 +66,7 @@ def layout(title: str, body: str, token: str = '') -> HTMLResponse:
       .crm-hero{background:linear-gradient(135deg,#0f172a,#1e3a8a 58%,#2563eb);color:white;border-radius:26px;padding:20px;box-shadow:var(--shadow);margin-bottom:16px}.crm-hero h1{margin:0;font-size:25px}.crm-hero .muted{color:#dbeafe}.card{background:rgba(255,255,255,.92);border:1px solid var(--line);border-radius:18px;padding:17px;margin:14px 0;box-shadow:0 8px 26px rgba(16,24,40,.045);backdrop-filter:blur(12px)}.card h1,.card h3{margin-top:0}.grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px}.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}.muted{color:var(--muted);font-size:13px;line-height:1.8}.btn,.action,button{display:inline-flex;align-items:center;justify-content:center;background:var(--primary);color:#fff;border:0;border-radius:12px;padding:9px 12px;margin:3px;font-weight:600;cursor:pointer}.btn2{background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe}.badge{display:inline-flex;background:#eef2ff;color:#2546a6;border-radius:999px;padding:5px 9px;margin:3px;font-size:12px;font-weight:600}input,select,textarea{font-family:inherit;border:1px solid #d0d5dd;border-radius:12px;padding:10px;margin:4px;background:#fff;outline:none}input:focus,select:focus,textarea:focus{border-color:#93c5fd;box-shadow:0 0 0 4px rgba(37,99,235,.12)}textarea{min-height:90px}.log{border-right:4px solid var(--primary);padding:11px;margin:10px 0;background:#f8fafc;border-radius:12px}.danger{background:#fff1f2;color:#be123c;border:1px solid #fecdd3}@media(max-width:800px){.wrap{padding:12px}.grid2,.grid3{grid-template-columns:1fr}.crm-hero{border-radius:20px}}
     </style>'''
     js = '''<script>document.addEventListener('click',async e=>{if(e.target.classList.contains('copy')){const t=e.target.dataset.text||'';try{await navigator.clipboard.writeText(t);e.target.textContent='کپی شد ✅'}catch(_){alert(t)}setTimeout(()=>e.target.textContent='کپی',1200)}});</script>'''
-    return HTMLResponse(f'<!doctype html><html lang="fa"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{h(title)}</title>{css}</head><body><div class="wrap"><div class="crm-hero"><h1>{h(title)}</h1><div class="muted">مدیریت حرفه‌ای مخاطبین، پیگیری‌ها، قالب‌ها و سرچ‌ها</div><a class="btn btn2" href="/?token={h(token)}">بازگشت به بانک اطلاعاتی</a> <a class="btn btn2" href="/crm?token={h(token)}">داشبورد CRM</a></div>{body}</div>{js}</body></html>')
+    return HTMLResponse(f'<!doctype html><html lang="fa"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{h(title)}</title>{css}</head><body><div class="wrap"><div class="crm-hero"><h1>{h(title)}</h1><div class="muted">مدیریت حرفه‌ای مخاطبین، پیگیری‌ها، قالب‌ها و سرچ‌ها</div><a class="btn btn2" href="/">بازگشت به بانک اطلاعاتی</a> <a class="btn btn2" href="/crm">داشبورد CRM</a> <a class="btn btn2" href="/analytics">📊 آنالیتیکس</a></div>{body}</div>{js}</body></html>')
 
 
 def contact_links(lead: Lead) -> str:
@@ -89,7 +87,7 @@ def crm_dashboard(db: Session = Depends(get_db), token: str = Query('')):
     stats = dashboard_more(db)
     body = f'''
     <div class="card"><h1>داشبورد CRM</h1><div class="grid3"><div class="card">لید امروز<br><b>{stats['today']}</b></div><div class="card">۷ روز اخیر<br><b>{stats['week']}</b></div><div class="card">پیگیری‌های سررسید<br><b>{stats['due']}</b></div></div></div>
-    <div class="grid2"><div class="card"><h3>دسترسی سریع</h3><a class="btn" href="/crm/templates?token={h(token)}">قالب پیام</a><a class="btn" href="/crm/queue?token={h(token)}">صف جستجو</a><a class="btn" href="/crm/rules?token={h(token)}">Blacklist/Whitelist</a><a class="btn" href="/crm/api-status?token={h(token)}">وضعیت API</a><a class="btn" href="/crm/presets?token={h(token)}">Search Preset</a><a class="btn" href="/crm/settings?token={h(token)}">تنظیمات سایت</a><a class="btn" href="/crm/conversion?token={h(token)}">گزارش تبدیل</a></div><div class="card"><h3>منابع فعال</h3>{''.join(f'<span class="badge">{h(r.value)}</span>' for r in source_preferences(db) if r.active)}</div></div>
+    <div class="grid2"><div class="card"><h3>دسترسی سریع</h3><a class="btn" href="/crm/templates">قالب پیام</a><a class="btn" href="/crm/queue">صف جستجو</a><a class="btn" href="/crm/rules">Blacklist/Whitelist</a><a class="btn" href="/crm/api-status">وضعیت API</a><a class="btn" href="/crm/presets">Search Preset</a><a class="btn" href="/crm/settings">تنظیمات سایت</a><a class="btn" href="/crm/conversion">گزارش تبدیل</a></div><div class="card"><h3>منابع فعال</h3>{''.join(f'<span class="badge">{h(r.value)}</span>' for r in source_preferences(db) if r.active)}</div></div>
     '''
     return layout('داشبورد CRM', body, token)
 
@@ -108,8 +106,8 @@ def lead_detail(lead_id: int, db: Session = Depends(get_db), token: str = Query(
     template_blocks = ''.join(f'<div class="card"><b>{h(t.name)}</b><br><textarea style="width:100%">{h(render_template(t.body, lead))}</textarea><br><button class="btn2 copy" data-text="{h(render_template(t.body, lead))}">کپی</button></div>' for t in templates)
     log_blocks = ''.join(f'<div class="log"><b>{h(l.action)}</b> - {h(fmt_dt(l.created_at))}<br>{h(l.note)}</div>' for l in logs) or '<span class="muted">هنوز پیگیری ثبت نشده.</span>'
     body = f'''
-    <div class="card"><h1>{h(lead.title)}</h1><p class="muted">شناسه #{lead.id} | افزوده شد: {h(fmt_dt(lead.first_seen))} | بروزرسانی: {h(fmt_dt(lead.last_seen))}</p><p>کانال پیشنهادی: <b>{h(rec)}</b> - {h(why)}</p><p>اعتبار مخاطب: <b>{h(valid_label)}</b> - {h(valid_reason)}</p>{contact_links(lead)}<br><form method="post" action="/crm/leads/{lead.id}/ai-message" style="display:inline"><input type="hidden" name="token" value="{h(token)}"><button class="btn2">ساخت پیام اختصاصی AI</button></form><form method="post" action="/crm/leads/{lead.id}/extract" style="display:inline"><input type="hidden" name="token" value="{h(token)}"><button class="btn2">استخراج تماس از صفحه</button></form><form method="post" action="/crm/leads/{lead.id}/send-main" style="display:inline"><input type="hidden" name="token" value="{h(token)}"><button class="btn2">ارسال به سایت اصلی</button></form><hr><form method="post" action="/leads/{lead.id}/people"><input type="hidden" name="token" value="{h(token)}"><input name="full_name" placeholder="نام فرد مرتبط؛ اگر خالی باشد از عنوان لید استفاده می‌شود" style="min-width:280px"><input name="role" placeholder="نقش" value="ادمین/مسئول"><input name="relationship" placeholder="رابطه با لید" value="ادمین"><button class="btn2">ساخت فرد مرتبط</button></form></div>
-    <div class="grid2"><div class="card"><h3>ویرایش CRM</h3><form method="post" action="/crm/leads/{lead.id}/update"><input type="hidden" name="token" value="{h(token)}"><select name="status">{status_opts}</select><input type="datetime-local" name="follow_up_at"><input name="preferred_contact" placeholder="کانال ترجیحی" value="{h(lead.preferred_contact)}"><textarea name="notes" placeholder="یادداشت">{h(lead.notes)}</textarea><button>ذخیره</button></form><form method="post" action="/crm/leads/{lead.id}/validate"><input type="hidden" name="token" value="{h(token)}"><button class="btn2">اعتبارسنجی لینک</button> <span class="muted">{h(lead.link_status or '-')}</span></form></div><div class="card"><h3>ثبت فعالیت</h3><form method="post" action="/crm/leads/{lead.id}/activity"><input type="hidden" name="token" value="{h(token)}"><select name="action"><option value="note">یادداشت</option><option value="messaged">پیام داده شد</option><option value="followup1">پیگیری اول</option><option value="followup2">پیگیری دوم</option><option value="call">تماس</option></select><textarea name="note" placeholder="شرح فعالیت"></textarea><button>ثبت</button></form></div></div>
+    <div class="card"><h1>{h(lead.title)}</h1><p class="muted">شناسه #{lead.id} | افزوده شد: {h(fmt_dt(lead.first_seen))} | بروزرسانی: {h(fmt_dt(lead.last_seen))}</p><p>کانال پیشنهادی: <b>{h(rec)}</b> - {h(why)}</p><p>اعتبار مخاطب: <b>{h(valid_label)}</b> - {h(valid_reason)}</p>{contact_links(lead)}<br><form method="post" action="/crm/leads/{lead.id}/ai-message" style="display:inline"><button class="btn2">ساخت پیام اختصاصی AI</button></form><form method="post" action="/crm/leads/{lead.id}/extract" style="display:inline"><button class="btn2">استخراج تماس از صفحه</button></form><form method="post" action="/crm/leads/{lead.id}/send-main" style="display:inline"><button class="btn2">ارسال به سایت اصلی</button></form><hr><form method="post" action="/leads/{lead.id}/people"><input name="full_name" placeholder="نام فرد مرتبط؛ اگر خالی باشد از عنوان لید استفاده می‌شود" style="min-width:280px"><input name="role" placeholder="نقش" value="ادمین/مسئول"><input name="relationship" placeholder="رابطه با لید" value="ادمین"><button class="btn2">ساخت فرد مرتبط</button></form></div>
+    <div class="grid2"><div class="card"><h3>ویرایش CRM</h3><form method="post" action="/crm/leads/{lead.id}/update"><select name="status">{status_opts}</select><input type="datetime-local" name="follow_up_at"><input name="preferred_contact" placeholder="کانال ترجیحی" value="{h(lead.preferred_contact)}"><textarea name="notes" placeholder="یادداشت">{h(lead.notes)}</textarea><button>ذخیره</button></form><form method="post" action="/crm/leads/{lead.id}/validate"><button class="btn2">اعتبارسنجی لینک</button> <span class="muted">{h(lead.link_status or '-')}</span></form></div><div class="card"><h3>ثبت فعالیت</h3><form method="post" action="/crm/leads/{lead.id}/activity"><select name="action"><option value="note">یادداشت</option><option value="messaged">پیام داده شد</option><option value="followup1">پیگیری اول</option><option value="followup2">پیگیری دوم</option><option value="call">تماس</option></select><textarea name="note" placeholder="شرح فعالیت"></textarea><button>ثبت</button></form></div></div>
     <div class="card"><h3>قالب‌های پیام</h3><div class="grid2">{template_blocks}</div></div>
     <div class="card"><h3>تاریخچه پیگیری</h3>{log_blocks}</div>
     '''
@@ -127,7 +125,7 @@ def crm_update_lead(lead_id: int, db: Session = Depends(get_db), token: Annotate
     lead.notes = notes.strip() or None
     db.add(lead); db.commit()
     log_activity(db, lead_id, 'update', f'وضعیت: {PROFESSIONAL_STATUSES.get(status,status)}')
-    return RedirectResponse(url=f'/leads/{lead_id}?token={quote_plus(token)}', status_code=303)
+    return RedirectResponse(url=f'/leads/{lead_id}', status_code=303)
 
 
 @router.post('/crm/leads/{lead_id}/activity')
@@ -135,7 +133,7 @@ def crm_activity(lead_id: int, db: Session = Depends(get_db), token: Annotated[s
     check_token(token)
     if not db.get(Lead, lead_id): raise HTTPException(404, 'مخاطب پیدا نشد')
     log_activity(db, lead_id, action, note)
-    return RedirectResponse(url=f'/leads/{lead_id}?token={quote_plus(token)}', status_code=303)
+    return RedirectResponse(url=f'/leads/{lead_id}', status_code=303)
 
 
 @router.post('/crm/leads/{lead_id}/validate')
@@ -148,7 +146,7 @@ async def crm_validate(lead_id: int, db: Session = Depends(get_db), token: Annot
     lead.link_checked_at = datetime.utcnow()
     db.add(lead); db.commit()
     log_activity(db, lead_id, 'link_validation', note)
-    return RedirectResponse(url=f'/leads/{lead_id}?token={quote_plus(token)}', status_code=303)
+    return RedirectResponse(url=f'/leads/{lead_id}', status_code=303)
 
 
 @router.get('/crm/templates', response_class=HTMLResponse)
@@ -156,7 +154,7 @@ def templates_page(db: Session = Depends(get_db), token: str = Query('')):
     check_token(token)
     templates = list(db.scalars(select(MessageTemplate).order_by(MessageTemplate.id)).all())
     rows = ''.join(f'<div class="log"><b>{h(t.name)}</b> <span class="badge">{h(t.category)}</span><br>{h(t.body)}</div>' for t in templates)
-    body = f'<div class="card"><h1>قالب‌های پیام</h1><form class="" method="post" action="/crm/templates"><input type="hidden" name="token" value="{h(token)}"><input name="name" placeholder="نام قالب"><input name="category" placeholder="دسته"><textarea name="body" placeholder="متن قالب"></textarea><button>افزودن</button></form></div><div class="card">{rows}</div>'
+    body = f'<div class="card"><h1>قالب‌های پیام</h1><form class="" method="post" action="/crm/templates"><input name="name" placeholder="نام قالب"><input name="category" placeholder="دسته"><textarea name="body" placeholder="متن قالب"></textarea><button>افزودن</button></form></div><div class="card">{rows}</div>'
     return layout('قالب پیام', body, token)
 
 
@@ -166,7 +164,7 @@ def templates_add(db: Session = Depends(get_db), token: Annotated[str, Form()] =
     if name.strip() and body.strip():
         db.add(MessageTemplate(name=name.strip(), category=category.strip() or None, body=body.strip()))
         db.commit()
-    return RedirectResponse(url=f'/crm/templates?token={quote_plus(token)}', status_code=303)
+    return RedirectResponse(url=f'/crm/templates', status_code=303)
 
 
 @router.get('/crm/queue', response_class=HTMLResponse)
@@ -174,7 +172,7 @@ def queue_page(db: Session = Depends(get_db), token: str = Query('')):
     check_token(token)
     items = list(db.scalars(select(SearchQueueItem).order_by(desc(SearchQueueItem.created_at)).limit(100)).all())
     rows = ''.join(f'<div class="log">#{q.id} <b>{h(q.topic)}</b> - {h(q.city or "ایران")} - {h(q.source)} - آخرین اجرا: {h(fmt_dt(q.last_run_at))}</div>' for q in items) or '<span class="muted">صف خالی است.</span>'
-    body = f'<div class="card"><h1>صف جستجو</h1><form method="post" action="/crm/queue/add"><input type="hidden" name="token" value="{h(token)}"><input name="topic" placeholder="موضوع"><input name="city" placeholder="شهر"><select name="source"><option value="openrouter_web">OpenRouter مستقیم</option><option value="ai_tavily">AI + Tavily</option></select><button>افزودن</button></form><form method="post" action="/crm/queue/run-next"><input type="hidden" name="token" value="{h(token)}"><button class="btn2">اجرای مورد بعدی</button></form></div><div class="card">{rows}</div>'
+    body = f'<div class="card"><h1>صف جستجو</h1><form method="post" action="/crm/queue/add"><input name="topic" placeholder="موضوع"><input name="city" placeholder="شهر"><select name="source"><option value="openrouter_web">OpenRouter مستقیم</option><option value="ai_tavily">AI + Tavily</option></select><button>افزودن</button></form><form method="post" action="/crm/queue/run-next"><button class="btn2">اجرای مورد بعدی</button></form></div><div class="card">{rows}</div>'
     return layout('صف جستجو', body, token)
 
 
@@ -184,7 +182,7 @@ def queue_add(db: Session = Depends(get_db), token: Annotated[str, Form()] = '',
     if topic.strip():
         db.add(SearchQueueItem(topic=topic.strip(), city=city.strip() or None, source=source))
         db.commit()
-    return RedirectResponse(url=f'/crm/queue?token={quote_plus(token)}', status_code=303)
+    return RedirectResponse(url=f'/crm/queue', status_code=303)
 
 
 @router.post('/crm/queue/run-next')
@@ -192,19 +190,19 @@ async def queue_run_next(db: Session = Depends(get_db), token: Annotated[str, Fo
     check_token(token)
     item = db.scalar(select(SearchQueueItem).where(SearchQueueItem.active == True).order_by(asc(SearchQueueItem.last_run_at).nullsfirst(), asc(SearchQueueItem.id)))
     if not item:
-        return RedirectResponse(url=f'/crm/queue?token={quote_plus(token)}', status_code=303)
+        return RedirectResponse(url=f'/crm/queue', status_code=303)
     if item.source == 'ai_tavily':
         ok, msg = can_use_provider(db, 'tavily')
-        if not ok: return RedirectResponse(url=f'/crm/queue?token={quote_plus(token)}', status_code=303)
+        if not ok: return RedirectResponse(url=f'/crm/queue', status_code=303)
         increment_usage(db, 'tavily')
         result = await run_ai_search(db, topic=item.topic, city=item.city, max_queries=4, results_per_query=4, min_score=60)
     else:
         ok, msg = can_use_provider(db, 'openrouter')
-        if not ok: return RedirectResponse(url=f'/crm/queue?token={quote_plus(token)}', status_code=303)
+        if not ok: return RedirectResponse(url=f'/crm/queue', status_code=303)
         increment_usage(db, 'openrouter')
         result = await run_openrouter_web_search(db, topic=item.topic, city=item.city, max_results=8, min_score=60)
     item.last_run_at = datetime.utcnow(); db.add(item); db.commit()
-    return RedirectResponse(url=f'/?token={quote_plus(token)}&new_ids={quote_plus(",".join(str(x) for x in result.get("saved_ids",[]) or []))}&sort=newest#queue', status_code=303)
+    return RedirectResponse(url=f'/?new_ids={quote_plus(",".join(str(x) for x in result.get("saved_ids",[]) or []))}&sort=newest#queue', status_code=303)
 
 
 @router.get('/crm/rules', response_class=HTMLResponse)
@@ -212,7 +210,7 @@ def rules_page(db: Session = Depends(get_db), token: str = Query('')):
     check_token(token)
     rules = list(db.scalars(select(SearchRule).order_by(SearchRule.rule_type, SearchRule.id)).all())
     rows = ''.join(f'<span class="badge">{h(r.rule_type)}: {h(r.value)}</span>' for r in rules)
-    body = f'<div class="card"><h1>قوانین Blacklist / Whitelist / منابع</h1><form method="post" action="/crm/rules/add"><input type="hidden" name="token" value="{h(token)}"><select name="rule_type"><option value="blacklist">Blacklist</option><option value="whitelist">Whitelist</option><option value="source">منبع سرچ</option></select><input name="value" placeholder="کلمه یا دامنه"><button>افزودن</button></form></div><div class="card">{rows}</div>'
+    body = f'<div class="card"><h1>قوانین Blacklist / Whitelist / منابع</h1><form method="post" action="/crm/rules/add"><select name="rule_type"><option value="blacklist">Blacklist</option><option value="whitelist">Whitelist</option><option value="source">منبع سرچ</option></select><input name="value" placeholder="کلمه یا دامنه"><button>افزودن</button></form></div><div class="card">{rows}</div>'
     return layout('قوانین', body, token)
 
 
@@ -222,7 +220,7 @@ def rules_add(db: Session = Depends(get_db), token: Annotated[str, Form()] = '',
     if value.strip():
         db.add(SearchRule(rule_type=rule_type, value=value.strip()))
         db.commit()
-    return RedirectResponse(url=f'/crm/rules?token={quote_plus(token)}', status_code=303)
+    return RedirectResponse(url=f'/crm/rules', status_code=303)
 
 
 @router.get('/crm/api-status', response_class=HTMLResponse)
@@ -246,7 +244,6 @@ def settings_page(db: Session = Depends(get_db), token: str = Query('')):
     body = f'''
     <div class="card"><h1>تنظیمات پروژه</h1>
       <form method="post" action="/crm/settings">
-        <input type="hidden" name="token" value="{h(token)}">
         <label>لینک ثبت آگهی سایت شما<br><input name="site_link" style="min-width:360px" value="{h(get_setting(db, 'site_link', 'YOUR_SITE_LINK'))}"></label><br>
         <label>API URL سایت اصلی<br><input name="main_site_api_url" style="min-width:360px" value="{h(get_setting(db, 'main_site_api_url'))}"></label><br>
         <label>API Key سایت اصلی<br><input name="main_site_api_key" style="min-width:360px" value="{h(get_setting(db, 'main_site_api_key'))}"></label><br>
@@ -262,15 +259,15 @@ def settings_save(db: Session = Depends(get_db), token: Annotated[str, Form()] =
     set_setting(db, 'site_link', site_link.strip())
     set_setting(db, 'main_site_api_url', main_site_api_url.strip())
     set_setting(db, 'main_site_api_key', main_site_api_key.strip())
-    return RedirectResponse(url=f'/crm/settings?token={quote_plus(token)}', status_code=303)
+    return RedirectResponse(url=f'/crm/settings', status_code=303)
 
 
 @router.get('/crm/presets', response_class=HTMLResponse)
 def presets_page(db: Session = Depends(get_db), token: str = Query('')):
     check_token(token)
     presets = list(db.scalars(select(SearchPreset).order_by(SearchPreset.id)).all())
-    rows = ''.join(f'<div class="log"><b>{h(p.name)}</b> <span class="badge">{h(p.source)}</span> <span class="badge">{h(p.city or "ایران")}</span><p class="muted">{h(p.description)}</p><pre>{h(p.queries)}</pre><form method="post" action="/crm/presets/{p.id}/run"><input type="hidden" name="token" value="{h(token)}"><label><input type="checkbox" name="force" value="1"> اجرای مجدد حتی اگر امروز اجرا شده</label><button>اجرای پکیج</button></form></div>' for p in presets)
-    body = f'''<div class="card"><h1>Search Preset حرفه‌ای</h1><form method="post" action="/crm/presets"><input type="hidden" name="token" value="{h(token)}"><input name="name" placeholder="نام پکیج"><input name="city" placeholder="شهر"><select name="source"><option value="openrouter_web">OpenRouter مستقیم</option><option value="ai_tavily">AI + Tavily</option></select><textarea name="queries" placeholder="هر query در یک خط"></textarea><button>افزودن Preset</button></form></div><div class="card">{rows}</div>'''
+    rows = ''.join(f'<div class="log"><b>{h(p.name)}</b> <span class="badge">{h(p.source)}</span> <span class="badge">{h(p.city or "ایران")}</span><p class="muted">{h(p.description)}</p><pre>{h(p.queries)}</pre><form method="post" action="/crm/presets/{p.id}/run"><label><input type="checkbox" name="force" value="1"> اجرای مجدد حتی اگر امروز اجرا شده</label><button>اجرای پکیج</button></form></div>' for p in presets)
+    body = f'''<div class="card"><h1>Search Preset حرفه‌ای</h1><form method="post" action="/crm/presets"><input name="name" placeholder="نام پکیج"><input name="city" placeholder="شهر"><select name="source"><option value="openrouter_web">OpenRouter مستقیم</option><option value="ai_tavily">AI + Tavily</option></select><textarea name="queries" placeholder="هر query در یک خط"></textarea><button>افزودن Preset</button></form></div><div class="card">{rows}</div>'''
     return layout('Search Preset', body, token)
 
 
@@ -280,7 +277,7 @@ def presets_add(db: Session = Depends(get_db), token: Annotated[str, Form()] = '
     if name.strip() and queries.strip():
         db.add(SearchPreset(name=name.strip(), city=city.strip() or None, source=source, queries=queries.strip()))
         db.commit()
-    return RedirectResponse(url=f'/crm/presets?token={quote_plus(token)}', status_code=303)
+    return RedirectResponse(url=f'/crm/presets', status_code=303)
 
 
 @router.post('/crm/presets/{preset_id}/run')
@@ -310,7 +307,7 @@ async def presets_run(preset_id: int, db: Session = Depends(get_db), token: Anno
     preset.last_run_at = datetime.utcnow()
     db.add(preset); db.commit()
     message = f'Preset اجرا شد. جدید: {len(saved_ids)} | سرچ‌های تکراری رد شده: {skipped}'
-    return RedirectResponse(url=f'/?token={quote_plus(token)}&ai_msg={quote_plus(message)}&new_ids={quote_plus(",".join(str(x) for x in saved_ids))}&sort=newest', status_code=303)
+    return RedirectResponse(url=f'/?ai_msg={quote_plus(message)}&new_ids={quote_plus(",".join(str(x) for x in saved_ids))}&sort=newest', status_code=303)
 
 
 @router.post('/crm/leads/{lead_id}/ai-message')
@@ -325,7 +322,7 @@ async def ai_message(lead_id: int, db: Session = Depends(get_db), token: Annotat
     except Exception:
         msg = render_site_link(db, public_invite_message(lead.title, lead.category))
     log_activity(db, lead.id, 'ai_message', msg)
-    return RedirectResponse(url=f'/leads/{lead.id}?token={quote_plus(token)}', status_code=303)
+    return RedirectResponse(url=f'/leads/{lead.id}', status_code=303)
 
 
 @router.post('/crm/leads/{lead_id}/extract')
@@ -347,7 +344,7 @@ async def extract_contact_route(lead_id: int, db: Session = Depends(get_db), tok
     if found.get('contact_page') and not lead.website: lead.website = found['contact_page']
     db.add(lead); db.commit()
     log_activity(db, lead.id, 'extract_contact', str(found) if found else 'چیزی پیدا نشد')
-    return RedirectResponse(url=f'/leads/{lead.id}?token={quote_plus(token)}', status_code=303)
+    return RedirectResponse(url=f'/leads/{lead.id}', status_code=303)
 
 
 @router.post('/crm/leads/{lead_id}/send-main')
@@ -359,7 +356,7 @@ async def send_to_main_site(lead_id: int, db: Session = Depends(get_db), token: 
     api_key = get_setting(db, 'main_site_api_key')
     if not api_url:
         log_activity(db, lead.id, 'send_main_site', 'API URL سایت اصلی تنظیم نشده است')
-        return RedirectResponse(url=f'/leads/{lead.id}?token={quote_plus(token)}', status_code=303)
+        return RedirectResponse(url=f'/leads/{lead.id}', status_code=303)
     payload = {'id': lead.id, 'title': lead.title, 'url': lead.url, 'phone': lead.phone, 'website': lead.website, 'instagram': lead.instagram, 'telegram': lead.telegram, 'category': lead.category, 'city': lead.city}
     try:
         headers = {'Authorization': f'Bearer {api_key}'} if api_key else {}
@@ -368,7 +365,7 @@ async def send_to_main_site(lead_id: int, db: Session = Depends(get_db), token: 
         log_activity(db, lead.id, 'send_main_site', f'ارسال شد: HTTP {r.status_code} {r.text[:150]}')
     except Exception as exc:
         log_activity(db, lead.id, 'send_main_site', f'خطا: {str(exc)[:200]}')
-    return RedirectResponse(url=f'/leads/{lead.id}?token={quote_plus(token)}', status_code=303)
+    return RedirectResponse(url=f'/leads/{lead.id}', status_code=303)
 
 
 @router.get('/crm/conversion', response_class=HTMLResponse)

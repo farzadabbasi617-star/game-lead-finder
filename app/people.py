@@ -37,9 +37,7 @@ def h(v) -> str:
 
 
 def check_token(token: str | None = None):
-    settings = get_settings()
-    if settings.admin_token and token != settings.admin_token:
-        raise HTTPException(status_code=401, detail='رمز مدیریت اشتباه است')
+    pass
 
 
 def fmt_dt(value) -> str:
@@ -56,7 +54,7 @@ def fmt_dt(value) -> str:
 def layout(title: str, body: str, token: str = '') -> HTMLResponse:
     css = '''<style>:root{--bg:#f6f8fc;--text:#101828;--muted:#667085;--line:#e4e7ec;--primary:#2563eb;--shadow:0 16px 40px rgba(16,24,40,.08)}*{box-sizing:border-box}body{font-family:Tahoma,Arial,sans-serif;background:radial-gradient(circle at top right,rgba(37,99,235,.10),transparent 34%),linear-gradient(180deg,#f8fbff,#f4f6fb);direction:rtl;color:var(--text);margin:0;font-size:14px}.wrap{max-width:1240px;margin:auto;padding:22px}a{text-decoration:none;color:var(--primary)}.hero{background:linear-gradient(135deg,#111827,#1e3a8a 58%,#2563eb);color:white;border-radius:26px;padding:20px;box-shadow:var(--shadow);margin-bottom:16px}.hero h1{margin:0}.hero .muted{color:#dbeafe}.card{background:rgba(255,255,255,.93);border:1px solid var(--line);border-radius:18px;padding:17px;margin:14px 0;box-shadow:0 8px 26px rgba(16,24,40,.045)}.grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px}.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}.muted{color:var(--muted);font-size:13px;line-height:1.8}.btn,.action,button{display:inline-flex;align-items:center;justify-content:center;background:var(--primary);color:#fff;border:0;border-radius:12px;padding:9px 12px;margin:3px;font-weight:600;cursor:pointer}.btn2{background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe}.badge{display:inline-flex;background:#eef2ff;color:#2546a6;border-radius:999px;padding:5px 9px;margin:3px;font-size:12px;font-weight:600}input,select,textarea{font-family:inherit;border:1px solid #d0d5dd;border-radius:12px;padding:10px;margin:4px;background:#fff;outline:none}textarea{min-height:90px}.log{border-right:4px solid var(--primary);padding:11px;margin:10px 0;background:#f8fafc;border-radius:12px}table{width:100%;border-collapse:separate;border-spacing:0;background:#fff;border-radius:16px;overflow:hidden;border:1px solid var(--line)}th,td{padding:12px;border-bottom:1px solid #edf0f5;text-align:right;vertical-align:top}th{background:#eef4ff}@media(max-width:800px){.wrap{padding:12px}.grid2,.grid3{grid-template-columns:1fr}table{display:block;overflow-x:auto}}</style>'''
     js = '''<script>document.addEventListener('click',async e=>{if(e.target.classList.contains('copy')){const t=e.target.dataset.text||'';try{await navigator.clipboard.writeText(t);e.target.textContent='کپی شد ✅'}catch(_){alert(t)}setTimeout(()=>e.target.textContent='کپی',1200)}});</script>'''
-    return HTMLResponse(f'<!doctype html><html lang="fa"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{h(title)}</title>{css}</head><body><div class="wrap"><div class="hero"><h1>{h(title)}</h1><div class="muted">بانک افراد پشت فروشگاه‌ها، پیج‌ها، کانال‌ها و آگهی‌ها</div><a class="btn btn2" href="/?token={h(token)}">بانک لیدها</a> <a class="btn btn2" href="/people?token={h(token)}">بانک افراد</a></div>{body}</div>{js}</body></html>')
+    return HTMLResponse(f'<!doctype html><html lang="fa"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{h(title)}</title>{css}</head><body><div class="wrap"><div class="hero"><h1>{h(title)}</h1><div class="muted">بانک افراد پشت فروشگاه‌ها، پیج‌ها، کانال‌ها و آگهی‌ها</div><a class="btn btn2" href="/">بانک لیدها</a> <a class="btn btn2" href="/people">بانک افراد</a></div>{body}</div>{js}</body></html>')
 
 
 def person_keys_from_values(phone=None, telegram=None, instagram=None, email=None, full_name=None, city=None) -> set[str]:
@@ -131,11 +129,11 @@ def people_index(db: Session = Depends(get_db), token: str = Query(''), q: str =
     if status: stmt = stmt.where(Person.status == status)
     if role: stmt = stmt.where(Person.role.ilike(f'%{role}%'))
     people = list(db.scalars(stmt.order_by(desc(Person.last_seen)).limit(300)).all())
-    rows = ''.join(f'<tr><td><b>{h(p.full_name)}</b><br><span class="muted">{h(p.role or "-")} | {h(p.city or "-")}</span></td><td>{person_contact_buttons(p)}</td><td><span class="badge">{h(PERSON_STATUS_LABELS.get(p.status,p.status))}</span></td><td>{h(fmt_dt(p.first_seen))}</td><td><a class="btn2" href="/people/{p.id}?token={h(token)}">جزئیات</a></td></tr>' for p in people)
+    rows = ''.join(f'<tr><td><b>{h(p.full_name)}</b><br><span class="muted">{h(p.role or "-")} | {h(p.city or "-")}</span></td><td>{person_contact_buttons(p)}</td><td><span class="badge">{h(PERSON_STATUS_LABELS.get(p.status,p.status))}</span></td><td>{h(fmt_dt(p.first_seen))}</td><td><a class="btn2" href="/people/{p.id}">جزئیات</a></td></tr>' for p in people)
     status_opts = ''.join(f'<option value="{h(k)}">{h(v)}</option>' for k,v in PERSON_STATUS_LABELS.items())
     body = f'''
-    <div class="card"><h2>افزودن فرد</h2><form method="post" action="/people"><input type="hidden" name="token" value="{h(token)}"><input name="full_name" placeholder="نام کامل" required><input name="role" placeholder="نقش؛ مالک/ادمین/فروشنده"><input name="phone" placeholder="تلفن"><input name="telegram" placeholder="تلگرام"><input name="instagram" placeholder="اینستاگرام"><input name="city" placeholder="شهر"><button>ذخیره فرد</button></form></div>
-    <div class="card"><h2>جستجو و فیلتر افراد</h2><form><input type="hidden" name="token" value="{h(token)}"><input name="q" value="{h(q)}" placeholder="نام، شماره، آیدی، شهر"><input name="role" value="{h(role)}" placeholder="نقش"><select name="status"><option value="">همه وضعیت‌ها</option>{status_opts}</select><button>نمایش</button></form></div>
+    <div class="card"><h2>افزودن فرد</h2><form method="post" action="/people"><input name="full_name" placeholder="نام کامل" required><input name="role" placeholder="نقش؛ مالک/ادمین/فروشنده"><input name="phone" placeholder="تلفن"><input name="telegram" placeholder="تلگرام"><input name="instagram" placeholder="اینستاگرام"><input name="city" placeholder="شهر"><button>ذخیره فرد</button></form></div>
+    <div class="card"><h2>جستجو و فیلتر افراد</h2><form><input name="q" value="{h(q)}" placeholder="نام، شماره، آیدی، شهر"><input name="role" value="{h(role)}" placeholder="نقش"><select name="status"><option value="">همه وضعیت‌ها</option>{status_opts}</select><button>نمایش</button></form></div>
     <div class="card"><h2>بانک افراد</h2><table><thead><tr><th>فرد</th><th>ارتباط</th><th>وضعیت</th><th>اولین ثبت</th><th>عملیات</th></tr></thead><tbody>{rows or '<tr><td colspan="5">هنوز فردی ثبت نشده</td></tr>'}</tbody></table></div>'''
     return layout('بانک افراد', body, token)
 
@@ -148,7 +146,7 @@ def people_add(db: Session = Depends(get_db), token: Annotated[str, Form()] = ''
     person, is_new = upsert_person(db, {'full_name': full_name.strip(), 'role': role.strip() or None, 'phone': phone.strip() or None, 'whatsapp': whatsapp.strip() or None, 'telegram': telegram.strip() or None, 'instagram': instagram.strip() or None, 'email': email.strip() or None, 'city': city.strip() or None, 'source': source, 'notes': notes.strip() or None, 'status': 'new'})
     db.add(PersonActivityLog(person_id=person.id, action='create' if is_new else 'merge', note='ثبت/ادغام فرد'))
     db.commit()
-    return RedirectResponse(url=f'/people/{person.id}?token={quote_plus(token)}', status_code=303)
+    return RedirectResponse(url=f'/people/{person.id}', status_code=303)
 
 
 @router.get('/people/{person_id}', response_class=HTMLResponse)
@@ -161,13 +159,13 @@ def person_detail(person_id: int, db: Session = Depends(get_db), token: str = Qu
     for link in links:
         lead = db.get(Lead, link.lead_id)
         if lead:
-            lead_blocks += f'<div class="log"><b>{h(lead.title)}</b> <span class="badge">{h(link.relationship)}</span><br><a href="/leads/{lead.id}?token={h(token)}">باز کردن لید</a></div>'
+            lead_blocks += f'<div class="log"><b>{h(lead.title)}</b> <span class="badge">{h(link.relationship)}</span><br><a href="/leads/{lead.id}">باز کردن لید</a></div>'
     logs = list(db.scalars(select(PersonActivityLog).where(PersonActivityLog.person_id == person_id).order_by(desc(PersonActivityLog.created_at)).limit(80)).all())
     log_blocks = ''.join(f'<div class="log"><b>{h(l.action)}</b> - {h(fmt_dt(l.created_at))}<br>{h(l.note)}</div>' for l in logs) or '<span class="muted">تاریخچه‌ای ثبت نشده</span>'
     status_opts = ''.join(f'<option value="{h(k)}" {"selected" if person.status==k else ""}>{h(v)}</option>' for k,v in PERSON_STATUS_LABELS.items())
     body = f'''
-    <div class="card"><h1>{h(person.full_name)}</h1><p class="muted">{h(person.role or '-')} | {h(person.city or '-')} | ثبت: {h(fmt_dt(person.first_seen))}</p>{person_contact_buttons(person)}<form method="post" action="/people/{person.id}/ai-message" style="display:inline"><input type="hidden" name="token" value="{h(token)}"><button class="btn2">پیام اختصاصی AI برای فرد</button></form></div>
-    <div class="grid2"><div class="card"><h3>ویرایش فرد</h3><form method="post" action="/people/{person.id}/update"><input type="hidden" name="token" value="{h(token)}"><input name="full_name" value="{h(person.full_name)}"><input name="role" value="{h(person.role)}"><select name="status">{status_opts}</select><input name="phone" value="{h(person.phone)}" placeholder="تلفن"><input name="whatsapp" value="{h(person.whatsapp)}" placeholder="واتساپ"><input name="telegram" value="{h(person.telegram)}" placeholder="تلگرام"><input name="instagram" value="{h(person.instagram)}" placeholder="اینستاگرام"><input name="email" value="{h(person.email)}" placeholder="ایمیل"><input name="city" value="{h(person.city)}" placeholder="شهر"><textarea name="notes">{h(person.notes)}</textarea><button>ذخیره</button></form></div><div class="card"><h3>ثبت فعالیت</h3><form method="post" action="/people/{person.id}/activity"><input type="hidden" name="token" value="{h(token)}"><select name="action"><option value="note">یادداشت</option><option value="message">پیام</option><option value="call">تماس</option><option value="followup">پیگیری</option></select><textarea name="note"></textarea><button>ثبت</button></form></div></div>
+    <div class="card"><h1>{h(person.full_name)}</h1><p class="muted">{h(person.role or '-')} | {h(person.city or '-')} | ثبت: {h(fmt_dt(person.first_seen))}</p>{person_contact_buttons(person)}<form method="post" action="/people/{person.id}/ai-message" style="display:inline"><button class="btn2">پیام اختصاصی AI برای فرد</button></form></div>
+    <div class="grid2"><div class="card"><h3>ویرایش فرد</h3><form method="post" action="/people/{person.id}/update"><input name="full_name" value="{h(person.full_name)}"><input name="role" value="{h(person.role)}"><select name="status">{status_opts}</select><input name="phone" value="{h(person.phone)}" placeholder="تلفن"><input name="whatsapp" value="{h(person.whatsapp)}" placeholder="واتساپ"><input name="telegram" value="{h(person.telegram)}" placeholder="تلگرام"><input name="instagram" value="{h(person.instagram)}" placeholder="اینستاگرام"><input name="email" value="{h(person.email)}" placeholder="ایمیل"><input name="city" value="{h(person.city)}" placeholder="شهر"><textarea name="notes">{h(person.notes)}</textarea><button>ذخیره</button></form></div><div class="card"><h3>ثبت فعالیت</h3><form method="post" action="/people/{person.id}/activity"><select name="action"><option value="note">یادداشت</option><option value="message">پیام</option><option value="call">تماس</option><option value="followup">پیگیری</option></select><textarea name="note"></textarea><button>ثبت</button></form></div></div>
     <div class="card"><h3>لیدهای مرتبط</h3>{lead_blocks or '<span class="muted">هنوز به لید وصل نشده</span>'}</div>
     <div class="card"><h3>تاریخچه فرد</h3>{log_blocks}</div>'''
     return layout('جزئیات فرد', body, token)
@@ -191,7 +189,7 @@ def person_update(person_id: int, db: Session = Depends(get_db), token: Annotate
     person.last_seen = datetime.utcnow()
     db.add(person); db.commit()
     db.add(PersonActivityLog(person_id=person.id, action='update', note='اطلاعات فرد بروزرسانی شد')); db.commit()
-    return RedirectResponse(url=f'/people/{person.id}?token={quote_plus(token)}', status_code=303)
+    return RedirectResponse(url=f'/people/{person.id}', status_code=303)
 
 
 @router.post('/people/{person_id}/activity')
@@ -199,7 +197,7 @@ def person_activity(person_id: int, db: Session = Depends(get_db), token: Annota
     check_token(token)
     if not db.get(Person, person_id): raise HTTPException(404, 'فرد پیدا نشد')
     db.add(PersonActivityLog(person_id=person_id, action=action, note=note)); db.commit()
-    return RedirectResponse(url=f'/people/{person_id}?token={quote_plus(token)}', status_code=303)
+    return RedirectResponse(url=f'/people/{person_id}', status_code=303)
 
 
 @router.post('/people/{person_id}/ai-message')
@@ -214,7 +212,7 @@ async def person_ai_message(person_id: int, db: Session = Depends(get_db), token
     except Exception:
         msg = f'سلام {person.full_name} وقتتون بخیر. ما یک پلتفرم تخصصی گیمینگ برای ثبت رایگان آگهی فروشنده‌ها داریم. خوشحال می‌شیم اگر مایل بودید همکاری کنیم: {get_setting(db, "site_link", "YOUR_SITE_LINK")}'
     db.add(PersonActivityLog(person_id=person.id, action='ai_message', note=msg)); db.commit()
-    return RedirectResponse(url=f'/people/{person.id}?token={quote_plus(token)}', status_code=303)
+    return RedirectResponse(url=f'/people/{person.id}', status_code=303)
 
 
 @router.post('/leads/{lead_id}/people')
@@ -227,4 +225,4 @@ def create_person_from_lead(lead_id: int, db: Session = Depends(get_db), token: 
     link_person_lead(db, person.id, lead.id, relationship)
     db.add(PersonActivityLog(person_id=person.id, action='linked_lead', note=f'اتصال به لید #{lead.id}: {lead.title}'))
     db.commit()
-    return RedirectResponse(url=f'/people/{person.id}?token={quote_plus(token)}', status_code=303)
+    return RedirectResponse(url=f'/people/{person.id}', status_code=303)
