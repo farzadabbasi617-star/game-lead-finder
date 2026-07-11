@@ -443,6 +443,32 @@ def _api_key_warning() -> str:
     )
 
 
+def _render_folder_table(folder: str, grouped: dict, fresh_ids: set) -> str:
+    items = grouped.get(folder, [])
+    if not items:
+        return ''
+    icon, label, desc = FOLDER_META.get(folder, FOLDER_META['other'])
+    rows = ''.join(render_lead_row(lead, '', fresh_ids) for lead in items)
+    return f'''<h3 style="margin-top:16px">{icon} پوشه {label} ({len(items)} مخاطب)</h3>
+    <table><thead><tr><th>منبع/وضعیت</th><th>مشخصات</th><th>ارتباط</th><th>ویرایش</th><th>لینک</th></tr></thead><tbody>{rows}</tbody></table>'''
+
+
+def _render_all_folders(grouped: dict, fresh_ids: set) -> str:
+    out = ''
+    for key in FOLDER_ORDER:
+        items = grouped.get(key, [])
+        if not items:
+            continue
+        icon, label, desc = FOLDER_META.get(key, FOLDER_META['other'])
+        rows = ''.join(render_lead_row(lead, '', fresh_ids) for lead in items)
+        first = any(lead.id in fresh_ids for lead in items)
+        out += f'''<details class="folder-section"{" open" if first else ""}>
+          <summary><div><div class="folder-title">{icon} {label}</div><div class="folder-desc">{desc}</div></div>
+          <div><span class="folder-count">{len(items)}</span> <a class="btn2" href="/?folder={key}">باز کردن</a></div></summary>
+          <div class="folder-table"><table><thead><tr><th>منبع/وضعیت</th><th>مشخصات</th><th>ارتباط</th><th>ویرایش</th><th>لینک</th></tr></thead><tbody>{rows}</tbody></table></div></details>'''
+    return out or '<div class="empty-folder">هنوز مخاطبی ذخیره نشده.</div>'
+
+
 @app.get('/', response_class=HTMLResponse)
 def index(
     db: Session = Depends(get_db),
@@ -455,9 +481,19 @@ def index(
     token: str = Query('', include_in_schema=False),
     ai_msg: str = Query(''),
     new_ids: str = Query(''),
+    folder: str = Query(''),  # نمایش فقط یک پوشه
 ):
     stats = dashboard_stats(db)
     stmt = build_query(db, status, source, category, q)
+
+    # فیلتر پوشه
+    if folder:
+        source_filter = folder_source_filter(folder)
+        if source_filter:
+            stmt = stmt.where(Lead.source.ilike(f'%{source_filter}%'))
+        elif folder == 'other':
+            pass  # show all that don't match other folders
+
     fresh_ids = parse_id_list(new_ids)
     leads = list(db.scalars(apply_sort(stmt, sort).limit(limit)).all())
     keywords = list(db.scalars(select(Keyword).order_by(Keyword.id)).all())
@@ -546,125 +582,105 @@ def index(
 
     {_api_key_warning()}
 
-    <div id="openrouter-web-search" class="card">
-      <div class="section-title"><h3>سرچ مستقیم با هوش مصنوعی OpenRouter</h3><span class="pill">بدون Tavily</span></div>
-      <form class="inline" method="post" action="/openrouter-web-search">
-        <input name="topic" placeholder="مثلاً خرید اکانت کلش رویال" required style="min-width:280px">
-        <input name="city" placeholder="شهر؛ اختیاری" value="تهران" style="width:120px">
-        <label>حداکثر لید <input type="number" name="max_results" value="10" min="1" max="30" style="width:80px"></label>
-        <label>حداقل امتیاز <input type="number" name="min_score" value="60" min="0" max="100" style="width:80px"></label>
-        <label><input type="checkbox" name="force" value="1"> اجرای مجدد حتی اگر امروز اجرا شده</label>
-        <button>فقط با AI سرچ کن و ذخیره کن</button>
+    <div class="card">
+      <div class="section-title"><h3>🔍 جستجوی هوشمند یکپارچه</h3><span class="pill">یک سرچ، همه منابع</span></div>
+      <form class="inline" method="post" action="/unified-search">
+        <input name="topic" placeholder="مثلاً فروش سی پی کالاف" required style="min-width:280px">
+        <input name="city" placeholder="شهر" value="تهران" style="width:120px">
+        <label>نتیجه هر منبع <input type="number" name="max_results" value="8" min="1" max="20" style="width:70px"></label>
+        <button>🚀 جستجو</button>
+        <div style="width:100%;margin-top:8px;display:flex;gap:12px;flex-wrap:wrap">
+          <label style="display:flex;align-items:center;gap:4px;cursor:pointer"><input type="checkbox" name="src" value="openrouter" checked> 🤖 OpenRouter AI</label>
+          <label style="display:flex;align-items:center;gap:4px;cursor:pointer"><input type="checkbox" name="src" value="tavily" checked> 🔎 Tavily</label>
+          <label style="display:flex;align-items:center;gap:4px;cursor:pointer"><input type="checkbox" name="src" value="divar" checked> 🏷️ دیوار</label>
+          <label style="display:flex;align-items:center;gap:4px;cursor:pointer"><input type="checkbox" name="src" value="sheypoor" checked> 📌 شیپور</label>
+          <label style="display:flex;align-items:center;gap:4px;cursor:pointer"><input type="checkbox" name="src" value="search_links"> ✍️ لینک جستجو (رایگان)</label>
+          <label style="display:flex;align-items:center;gap:4px;cursor:pointer"><input type="checkbox" name="force" value="1"> اجرای مجدد</label>
+        </div>
       </form>
-      <div class="muted" style="margin-top:10px">پیشنهادهای آماده سرچ:</div>{suggestion_buttons()}
-      <div class="hint">این بخش از Tavily استفاده نمی‌کند و فقط با قابلیت Web Search خود OpenRouter کار می‌کند. Groq و HuggingFace سرچ وب مستقیم ندارند؛ اگر OpenRouter web search یا مدل‌های رایگان limit بخورند، برنامه مدل بعدی OpenRouter را امتحان می‌کند. شماره/سایت/پیج فقط وقتی ذخیره می‌شود که عمومی پیدا شود.</div>
-    </div>
-
-    <div id="ai-search" class="card">
-      <div class="section-title"><h3>جستجوی هوشمند با هوش مصنوعی</h3><span class="pill">AI + Tavily + حذف تکراری سختگیرانه</span></div>
-      <form class="inline" method="post" action="/ai-search">
-        <input name="topic" placeholder="مثلاً فروش سی پی کالاف" required style="min-width:260px">
-        <input name="city" placeholder="شهر؛ اختیاری" value="تهران" style="width:120px">
-        <label>تعداد query <input type="number" name="max_queries" value="6" min="1" max="20" style="width:80px"></label>
-        <label>نتیجه هر query <input type="number" name="results_per_query" value="5" min="1" max="20" style="width:80px"></label>
-        <label>حداقل امتیاز AI <input type="number" name="min_score" value="60" min="0" max="100" style="width:80px"></label>
-        <label><input type="checkbox" name="force" value="1"> اجرای مجدد حتی اگر امروز اجرا شده</label>
-        <button>سرچ کن و لیدهای خوب را ذخیره کن</button>
-      </form>
-      <div class="muted" style="margin-top:10px">پیشنهادهای آماده سرچ:</div>{suggestion_buttons()}
-      <div class="hint">هوش مصنوعی اول عبارت‌های جستجوی بهتر می‌سازد، Tavily سرچ واقعی انجام می‌دهد، سپس AI نتایج نامرتبط را حذف می‌کند. فقط موارد تأییدشده و غیرتکراری در بانک ذخیره می‌شوند. اگر یک مدل لیمیت بخورد، خودکار مدل/سرویس بعدی امتحان می‌شود.</div>
-    </div>
-
-    <div id="collector" class="card">
-      <div class="section-title"><h3>جمع‌آوری مخاطب جدید</h3><span class="pill">پیشنهاد فعلی: Tavily با تعداد کم</span></div>
-      <form class="inline" method="post" action="/run">
-        <select name="source">{collector_options('tavily')}</select>
-        <label>تعداد کلمات <input type="number" name="keyword_limit" value="1" min="1" max="30" style="width:80px"></label>
-        <label>تعداد شهرها <input type="number" name="city_limit" value="1" min="1" max="30" style="width:80px"></label>
-        <label>نتیجه برای هر جستجو <input type="number" name="result_limit" value="5" min="1" max="20" style="width:80px"></label>
-        <button>شروع جمع‌آوری و ذخیره در بانک</button>
-      </form>
-      <div class="hint">برای اینکه اعتبار Tavily سریع مصرف نشود، اول با ۱ کلمه و ۱ شهر تست کن. همه نتایج مستقیم داخل بانک اطلاعاتی ذخیره می‌شوند.</div>
-      <hr style="border:0;border-top:1px solid #eee;margin:14px 0">
-      <form class="inline" method="post" action="/enrich">
-        <label>بررسی سایت‌های عمومی <input type="number" name="limit" value="30" min="1" max="200" style="width:90px"></label>
-        <button class="btn2">پیدا کردن لینک اینستاگرام/تلگرام از سایت‌ها</button>
-      </form>
+      <div class="muted" style="margin-top:8px">پیشنهادها:</div>{suggestion_buttons()}
     </div>
 
     <div class="card">
-      <h3>افزودن مخاطب دستی به بانک</h3>
-      <form class="inline" method="post" action="/leads">
-        <input name="title" placeholder="نام فروشنده/عنوان آگهی" required>
-        <input name="url" placeholder="لینک اصلی" required style="min-width:260px">
-        <input name="source" value="دستی" style="width:90px">
-        <input name="city" placeholder="شهر" style="width:90px">
-        <input name="phone" placeholder="تلفن">
-        <input name="website" placeholder="وب‌سایت">
-        <input name="instagram" placeholder="اینستاگرام">
-        <input name="telegram" placeholder="تلگرام">
-        <button class="btn2">ذخیره مخاطب</button>
-      </form>
+      <div class="section-title"><h3>📂 پوشه‌های مخاطبین</h3><span class="muted">هر پوشه رو باز کن تا مخاطبینش رو ببینی</span></div>
+      {'<a class="btn2" href="/" style="margin-bottom:12px;display:inline-block">← بازگشت به همه پوشه‌ها</a>' if folder else ''}
+      {'<div class="folder-grid">' + ''.join(
+        f'<a class="folder-card" href="/?folder={key}"><span>{h(FOLDER_META[key][0])} {h(FOLDER_META[key][1])}</span><b>{len(grouped.get(key, []))}</b><span>{h(FOLDER_META[key][2])}</span></a>'
+        for key in FOLDER_ORDER if grouped.get(key)
+      ) + '</div>' if not folder else ''}
+      {_render_folder_table(folder, grouped, fresh_ids) if folder and grouped.get(folder) else ''}
+      {_render_all_folders(grouped, fresh_ids) if not folder else ''}
+    </div>
+
+    <div class="grid2">
+      <div class="card"><h3>➕ افزودن دستی</h3>
+        <form class="inline" method="post" action="/leads">
+          <input name="title" placeholder="نام فروشنده" required>
+          <input name="url" placeholder="لینک" required style="min-width:200px">
+          <input name="city" placeholder="شهر" style="width:80px">
+          <input name="phone" placeholder="تلفن">
+          <button class="btn2">ذخیره</button>
+        </form>
+      </div>
+      <div class="card"><h3>📥 ورود CSV</h3>
+        <form class="inline" method="post" action="/import.csv" enctype="multipart/form-data">
+          <input type="file" name="file" accept=".csv" required>
+          <button class="btn2">وارد کردن</button>
+        </form>
+      </div>
     </div>
 
     <div class="card">
-      <h3>جستجو و فیلتر بانک اطلاعاتی</h3>
-      <form class="inline" method="get" action="/">
-        <input name="q" placeholder="جستجو در نام، لینک، شهر، تلفن و توضیحات" value="{h(q)}" style="min-width:280px">
-        <input name="source" placeholder="منبع؛ مثلا tavily یا instagram" value="{h(source)}">
-        <input name="category" placeholder="دسته؛ مثلا گیفت کارت" value="{h(category)}">
-        <select name="status"><option value="">همه وضعیت‌ها</option>{status_options(status)}</select>
-        <select name="sort">{sort_options(sort)}</select>
-        <input name="limit" type="number" min="1" max="500" value="{limit}" style="width:90px">
-        <button>نمایش</button>
-      </form>
-    </div>
-
-    <div class="card">
-      <div class="section-title"><h3>بانک اطلاعاتی مخاطبین</h3><span class="muted">نتایج بر اساس منبع داخل پوشه‌های جدا تفکیک شده‌اند | مرتب‌سازی فعلی: {h(SORT_LABELS.get(sort, sort))}</span></div>
-      <div class="folder-grid">{folder_cards}</div>
-      {grouped_sections or '<div class="empty-folder">هنوز مخاطبی در بانک اطلاعاتی ذخیره نشده است.</div>'}
-    </div>
-
-    <div id="settings" class="grid2">
-      <div class="card"><h3>کلمات کلیدی جمع‌آوری</h3><form class="inline" method="post" action="/keywords"><input name="keyword" placeholder="مثلاً فروشگاه کنسول"><button class="btn2">افزودن کلمه</button></form><p class="muted">{h(keyword_list)}</p></div>
-      <div class="card"><h3>شهرهای هدف</h3><form class="inline" method="post" action="/cities"><input name="name" placeholder="نام شهر"><input name="lat" placeholder="عرض جغرافیایی" style="width:110px"><input name="lng" placeholder="طول جغرافیایی" style="width:110px"><button class="btn2">افزودن شهر</button></form><p class="muted">{h(city_list)}</p></div>
-    </div>
-
-    <div class="card">
-      <h3>ورود لیست از فایل CSV</h3>
-      <form class="inline" method="post" action="/import.csv" enctype="multipart/form-data">
-        <input type="file" name="file" accept=".csv,text/csv" required>
-        <button class="btn2">وارد کردن و ذخیره در بانک</button>
-      </form>
-      <div class="muted">ستون‌های قابل قبول: title,url,source,city,phone,website,instagram,telegram,address,description,category</div>
-    </div>
-
-    <div id="crm-shortcuts" class="card">
-      <div class="section-title"><h3>ابزارهای CRM و مدیریت پروژه</h3><span class="pill">جدید</span></div>
-      <a class="action" href="/crm">داشبورد CRM</a>
-      <a class="action" href="/analytics">📊 آنالیتیکس و نمودارها</a>
-      <a class="action" href="/sponsor">🎯 کانال‌های اسپانسری</a>
-      <a class="action" href="/influencer">🌟 اینفلوئنسرهای گیمینگ</a>
-      <a class="action" href="/growth">🌱 رشد مخاطب + لندینگ پیج</a>
-      <a class="action" href="/campaigns">کمپین‌های تبلیغاتی</a>
+      <div class="section-title"><h3>🛠️ ابزارها</h3></div>
+      <a class="action" href="/crm">CRM</a>
+      <a class="action" href="/analytics">📊 آنالیتیکس</a>
+      <a class="action" href="/sponsor">🎯 اسپانسری</a>
+      <a class="action" href="/influencer">🌟 اینفلوئنسرها</a>
+      <a class="action" href="/growth">🌱 رشد مخاطب</a>
+      <a class="action" href="/campaigns">کمپین‌ها</a>
       <a class="action" href="/people">بانک افراد</a>
-      <a class="action" href="/crm/templates">قالب‌های پیام</a>
-      <a class="action" href="/crm/queue">صف جستجو</a>
-      <a class="action" href="/crm/rules">Blacklist / Whitelist</a>
-      <a class="action" href="/crm/api-status">وضعیت API و مصرف</a>
-      <a class="action" href="/crm/presets">Search Preset</a>
-      <a class="action" href="/crm/settings">تنظیمات سایت</a>
-      <a class="action" href="/crm/conversion">گزارش تبدیل</a>
-      <div class="muted" style="margin-top:8px">صفحه جزئیات هر مخاطب از دکمه «جزئیات و تاریخچه» داخل جدول باز می‌شود.</div>
+      <a class="action" href="/export.xlsx">📥 Excel</a>
+      <a class="action" href="/export.csv">📥 CSV</a>
     </div>
 
     <div id="reports" class="card" style="overflow:auto">
-      <h3>گزارش آخرین اجراهای جمع‌آوری</h3>
-      <table><thead><tr><th>منبع</th><th>عبارت جستجو</th><th>تعداد پیدا شده</th><th>جدید</th><th>خطا</th><th>زمان شروع</th></tr></thead><tbody>{run_rows}</tbody></table>
+      <h3>📋 گزارش آخرین اجراها</h3>
+      <table><thead><tr><th>منبع</th><th>عبارت</th><th>پیدا شده</th><th>جدید</th><th>خطا</th><th>زمان</th></tr></thead><tbody>{run_rows}</tbody></table>
     </div>
     '''
     return page('بانک اطلاعاتی فروشنده‌های گیمینگ', body)
+
+
+@app.post('/unified-search')
+async def unified_search_now(
+    db: Session = Depends(get_db),
+    topic: Annotated[str, Form()] = '',
+    city: Annotated[str, Form()] = 'تهران',
+    max_results: Annotated[int, Form()] = 8,
+    src: Annotated[list[str] | None, Form()] = None,
+    force: Annotated[str | None, Form()] = None,
+):
+    topic = topic.strip()
+    if not topic:
+        return RedirectResponse(url=f'/?ai_msg={quote_plus("موضوع جستجو خالی است")}', status_code=303)
+    if not src:
+        src = ['openrouter']
+    from app.unified_search import unified_search
+    try:
+        import asyncio
+        result = await asyncio.wait_for(
+            unified_search(db, topic=topic, city=city.strip() or 'تهران', sources=src, max_results=max_results),
+            timeout=120,
+        )
+    except asyncio.TimeoutError:
+        return RedirectResponse(url=f'/?ai_msg={quote_plus("سرچ بیش از حد طول کشید. دوباره تلاش کنید.")}', status_code=303)
+    except Exception as exc:
+        return RedirectResponse(url=f'/?ai_msg={quote_plus(f"خطا: {str(exc)[:200]}")}', status_code=303)
+    src_names = ', '.join(result.get('by_source', {}).keys())
+    msg = f"سرچ واحد: {result['total_found']} نتیجه، {result['total_saved']} جدید، {result['total_duplicates']} تکراری. منابع: {src_names}"
+    if result.get('errors'):
+        msg += f' | خطاها: {len(result["errors"])}'
+    return RedirectResponse(url=f'/?ai_msg={quote_plus(msg)}&sort=newest', status_code=303)
 
 
 @app.post('/openrouter-web-search')
