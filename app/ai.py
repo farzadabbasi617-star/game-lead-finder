@@ -433,9 +433,9 @@ async def openrouter_web_search_leads(
 '''
 
     errors: list[str] = []
-    async with httpx.AsyncClient(timeout=75) as client:
+    async with httpx.AsyncClient(timeout=30) as client:
         env_chain = _models_from_env_for_web(api_key)
-        auto_limit = int(os.getenv('OPENROUTER_AUTO_MODEL_LIMIT', '18'))
+        auto_limit = int(os.getenv('OPENROUTER_AUTO_MODEL_LIMIT', '6'))
         auto_chain = await _discover_openrouter_free_models(client, api_key, limit=auto_limit)
         fallback_chain = [AIModel('openrouter_web_fallback', m, api_key, 'https://openrouter.ai/api/v1') for m in _default_openrouter_web_fallback_models()]
         chain = _merge_model_chain(env_chain, auto_chain, fallback_chain)

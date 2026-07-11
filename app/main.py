@@ -421,6 +421,28 @@ def build_query(db: Session, status: str, source: str, category: str, q: str):
     return stmt
 
 
+def _api_key_warning() -> str:
+    """Show a warning if no search API key is configured."""
+    settings = get_settings()
+    has_openrouter = bool(settings.openrouter_api_key)
+    has_tavily = bool(settings.tavily_api_key)
+    has_groq = bool(settings.groq_api_key)
+    if has_openrouter or has_tavily or has_groq:
+        return ''  # at least one key is set
+    return (
+        '<div class="card" style="background:#fff7ed;border:1px solid #fed7aa;border-radius:16px">'
+        '<h3 style="color:#9a3412">⚠️ هیچ API Key تنظیم نشده!</h3>'
+        '<p style="color:#9a3412">برای استفاده از قابلیت سرچ هوشمند، حداقل یکی از این کلیدها رو توی فایل <code>.env</code> یا Render تنظیم کن:</p>'
+        '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-top:10px">'
+        '<div style="background:white;padding:12px;border-radius:12px;border:1px solid #fed7aa"><b>OpenRouter</b> (رایگان)<br><code>OPENROUTER_API_KEY=...</code><br><a href="https://openrouter.ai/keys" target="_blank">دریافت کلید ←</a></div>'
+        '<div style="background:white;padding:12px;border-radius:12px;border:1px solid #fed7aa"><b>Tavily</b> (رایگان)<br><code>TAVILY_API_KEY=...</code><br><a href="https://tavily.com" target="_blank">دریافت کلید ←</a></div>'
+        '<div style="background:white;padding:12px;border-radius:12px;border:1px solid #fed7aa"><b>Groq</b> (رایگان)<br><code>GROQ_API_KEY=...</code><br><a href="https://console.groq.com/keys" target="_blank">دریافت کلید ←</a></div>'
+        '</div>'
+        '<p class="muted" style="margin-top:10px">بدون API Key هم می‌تونی لید دستی اضافه کنی، CSV وارد کنی، و از همه بخش‌های دیگه استفاده کنی.</p>'
+        '</div>'
+    )
+
+
 @app.get('/', response_class=HTMLResponse)
 def index(
     db: Session = Depends(get_db),
@@ -521,6 +543,8 @@ def index(
     </div>
 
     {f'<div class="card hint">{h(ai_msg)}</div>' if ai_msg else ''}
+
+    {_api_key_warning()}
 
     <div id="openrouter-web-search" class="card">
       <div class="section-title"><h3>سرچ مستقیم با هوش مصنوعی OpenRouter</h3><span class="pill">بدون Tavily</span></div>
@@ -665,13 +689,18 @@ async def openrouter_web_search_now(
     if not ok:
         return RedirectResponse(url=f'/?ai_msg={quote_plus(usage_msg)}#openrouter-web-search', status_code=303)
     increment_usage(db, 'openrouter')
-    result = await run_openrouter_web_search(
-        db,
-        topic=topic,
-        city=city,
-        max_results=max_results,
-        min_score=min_score,
-    )
+    try:
+        import asyncio
+        result = await asyncio.wait_for(
+            run_openrouter_web_search(db, topic=topic, city=city, max_results=max_results, min_score=min_score),
+            timeout=120,
+        )
+    except asyncio.TimeoutError:
+        msg = 'سرچ بیش از حد طول کشید (timeout). لطفاً دوباره تلاش کنید یا تعداد مدل‌ها را کم کنید.'
+        return RedirectResponse(url=f'/?ai_msg={quote_plus(msg)}#openrouter-web-search', status_code=303)
+    except Exception as exc:
+        msg = f'خطای غیرمنتظره: {str(exc)[:200]}'
+        return RedirectResponse(url=f'/?ai_msg={quote_plus(msg)}#openrouter-web-search', status_code=303)
     if not result.get('ok'):
         msg = 'خطا در سرچ مستقیم AI: ' + str(result.get('error', 'نامشخص'))
     else:
@@ -704,14 +733,18 @@ async def ai_search_now(
     if not ok:
         return RedirectResponse(url=f'/?ai_msg={quote_plus(usage_msg)}#ai-search', status_code=303)
     increment_usage(db, 'tavily')
-    result = await run_ai_search(
-        db,
-        topic=topic,
-        city=city,
-        max_queries=max_queries,
-        results_per_query=results_per_query,
-        min_score=min_score,
-    )
+    try:
+        import asyncio
+        result = await asyncio.wait_for(
+            run_ai_search(db, topic=topic, city=city, max_queries=max_queries, results_per_query=results_per_query, min_score=min_score),
+            timeout=120,
+        )
+    except asyncio.TimeoutError:
+        msg = 'سرچ بیش از حد طول کشید (timeout). لطفاً دوباره تلاش کنید.'
+        return RedirectResponse(url=f'/?ai_msg={quote_plus(msg)}#ai-search', status_code=303)
+    except Exception as exc:
+        msg = f'خطای غیرمنتظره: {str(exc)[:200]}'
+        return RedirectResponse(url=f'/?ai_msg={quote_plus(msg)}#ai-search', status_code=303)
     if not result.get('ok'):
         msg = 'خطا در جستجوی هوشمند: ' + str(result.get('error', 'نامشخص'))
     else:
