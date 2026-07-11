@@ -134,3 +134,26 @@ class ApiUsage(Base):
     __table_args__ = (
         UniqueConstraint('provider', 'day', name='uq_api_usage_provider_day'),
     )
+
+
+class AppSetting(Base):
+    __tablename__ = 'app_settings'
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    key: Mapped[str] = mapped_column(String(120), nullable=False, unique=True, index=True)
+    value: Mapped[str | None] = mapped_column(Text, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+
+class SearchPreset(Base):
+    __tablename__ = 'search_presets'
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(180), nullable=False, unique=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    city: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    source: Mapped[str] = mapped_column(String(80), default='openrouter_web', nullable=False)
+    queries: Mapped[str] = mapped_column(Text, nullable=False)  # one query per line
+    active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False, index=True)
+    last_run_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)

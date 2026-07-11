@@ -8,7 +8,7 @@ from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
-from app.db.models import ActivityLog, ApiUsage, Lead, MessageTemplate, SearchQueueItem, SearchRule
+from app.db.models import ActivityLog, ApiUsage, AppSetting, CrawlerRun, Lead, MessageTemplate, SearchPreset, SearchQueueItem, SearchRule
 from app.utils import normalize_text_key
 
 PROFESSIONAL_STATUSES = {
@@ -166,3 +166,133 @@ def dashboard_more(db: Session) -> dict:
     by_source = db.execute(select(Lead.source, func.count(Lead.id)).group_by(Lead.source).order_by(func.count(Lead.id).desc()).limit(5)).all()
     by_category = db.execute(select(Lead.category, func.count(Lead.id)).group_by(Lead.category).order_by(func.count(Lead.id).desc()).limit(5)).all()
     return {'today': total_today, 'week': total_week, 'due': due, 'by_source': by_source, 'by_category': by_category}
+
+# ---- Growth / Conversion helpers ----
+from app.db.models import AppSetting, SearchPreset
+import re
+
+DEFAULT_SETTINGS = {
+    'site_link': 'YOUR_SITE_LINK',
+    'main_site_api_url': '',
+    'main_site_api_key': '',
+}
+
+DEFAULT_PRESETS = [
+    ('پکیج فروشندگان کالاف', 'فروشندگان CP/اکانت کالاف در تلگرام، اینستاگرام و وب', 'تهران', 'openrouter_web', '\n'.join([
+        'فروش سی پی کالاف', 'خرید CP کالاف', 'site:t.me فروش سی پی کالاف', 'site:instagram.com فروش CP کالاف', 'کانال فروش CP کالاف', 'پیج فروش سی پی کالاف'
+    ])),
+    ('پکیج فروشندگان پابجی', 'فروشندگان UC و اکانت پابجی', 'تهران', 'openrouter_web', '\n'.join([
+        'خرید یوسی پابجی', 'فروش UC پابجی', 'site:t.me فروش یوسی پابجی', 'site:instagram.com فروش UC پابجی', 'کانال یوسی پابجی'
+    ])),
+    ('پکیج فروشندگان فری فایر', 'فروشندگان جم/الماس فری فایر', 'تهران', 'openrouter_web', '\n'.join([
+        'جم فری فایر', 'الماس فری فایر', 'site:t.me جم فری فایر', 'site:instagram.com الماس فری فایر', 'فروشگاه جم فری فایر'
+    ])),
+    ('پکیج فروشگاه‌های کنسول', 'فروشگاه‌های کنسول، پلی‌استیشن و لوازم گیمینگ', 'تهران', 'openrouter_web', '\n'.join([
+        'فروشگاه کنسول تهران', 'فروشگاه پلی استیشن تهران', 'لوازم گیمینگ تهران', 'site:balad.ir فروشگاه کنسول تهران', 'site:instagram.com فروشگاه پلی استیشن تهران'
+    ])),
+    ('پکیج گیم‌نت‌ها', 'گیم‌نت‌ها و گیم سنترها', 'تهران', 'openrouter_web', '\n'.join([
+        'گیم نت تهران', 'گیم سنتر تهران', 'site:balad.ir گیم نت تهران', 'site:instagram.com گیم نت تهران'
+    ])),
+    ('پکیج گیفت کارت', 'فروشندگان گیفت کارت و استیم والت', 'تهران', 'openrouter_web', '\n'.join([
+        'گیفت کارت پلی استیشن', 'گیفت کارت استیم', 'استیم والت', 'site:t.me گیفت کارت پلی استیشن', 'site:instagram.com گیفت کارت استیم'
+    ])),
+]
+
+
+def seed_growth_data(db: Session) -> None:
+    for key, value in DEFAULT_SETTINGS.items():
+        if not db.scalar(select(AppSetting).where(AppSetting.key == key)):
+            db.add(AppSetting(key=key, value=value))
+    for name, description, city, source, queries in DEFAULT_PRESETS:
+        if not db.scalar(select(SearchPreset).where(SearchPreset.name == name)):
+            db.add(SearchPreset(name=name, description=description, city=city, source=source, queries=queries))
+    db.commit()
+
+
+def get_setting(db: Session, key: str, default: str = '') -> str:
+    row = db.scalar(select(AppSetting).where(AppSetting.key == key))
+    return (row.value if row and row.value is not None else default) or ''
+
+
+def set_setting(db: Session, key: str, value: str) -> None:
+    row = db.scalar(select(AppSetting).where(AppSetting.key == key))
+    if not row:
+        row = AppSetting(key=key, value=value)
+        db.add(row)
+    else:
+        row.value = value
+    db.commit()
+
+
+def render_site_link(db: Session, text: str) -> str:
+    return (text or '').replace('YOUR_SITE_LINK', get_setting(db, 'site_link', 'YOUR_SITE_LINK'))
+
+
+def search_recently_run(db: Session, source: str, query: str, hours: int = 24) -> CrawlerRun | None:
+    since = datetime.utcnow() - timedelta(hours=hours)
+    return db.scalar(select(CrawlerRun).where(CrawlerRun.source == source, CrawlerRun.query == query, CrawlerRun.started_at >= since).order_by(CrawlerRun.started_at.desc()))
+
+
+def source_quality_report(db: Session):
+    rows = db.execute(select(Lead.source, func.count(Lead.id)).group_by(Lead.source).order_by(func.count(Lead.id).desc())).all()
+    report = []
+    for source, total in rows:
+        def c(status):
+            return db.scalar(select(func.count(Lead.id)).where(Lead.source == source, Lead.status == status)) or 0
+        messaged = c('messaged') + c('followup1') + c('followup2')
+        replied = c('replied') + c('interested') + c('needs_call')
+        registered = c('registered')
+        report.append({
+            'source': source or 'unknown', 'total': total, 'messaged': messaged,
+            'replied': replied, 'registered': registered,
+            'reply_rate': round((replied / total) * 100, 1) if total else 0,
+            'conversion_rate': round((registered / total) * 100, 1) if total else 0,
+        })
+    return report
+
+
+def conversion_funnel(db: Session) -> dict:
+    total = db.scalar(select(func.count(Lead.id))) or 0
+    messaged = db.scalar(select(func.count(Lead.id)).where(Lead.status.in_(['messaged', 'followup1', 'followup2', 'replied', 'interested', 'needs_call', 'registered']))) or 0
+    replied = db.scalar(select(func.count(Lead.id)).where(Lead.status.in_(['replied', 'interested', 'needs_call', 'registered']))) or 0
+    registered = db.scalar(select(func.count(Lead.id)).where(Lead.status == 'registered')) or 0
+    return {'total': total, 'messaged': messaged, 'replied': replied, 'registered': registered}
+
+
+def validity_label(db: Session, lead: Lead) -> tuple[str, str]:
+    if lead.status == 'irrelevant' or lead_has_blacklist(db, lead):
+        return 'مشکوک/نامرتبط', 'کلمات blacklist یا وضعیت نامرتبط دارد'
+    contact_count = sum(bool(x) for x in [lead.phone, lead.website, lead.instagram, lead.telegram])
+    if lead.link_status == 'bad':
+        return 'نیاز به بررسی', 'لینک اصلی مشکل دارد'
+    if contact_count >= 2 and (lead.link_status in {None, 'ok', 'unknown'}):
+        return 'معتبر', 'چند راه ارتباط عمومی دارد'
+    if contact_count >= 1:
+        return 'قابل بررسی', 'حداقل یک راه ارتباط دارد'
+    return 'ضعیف', 'راه ارتباط مستقیم ندارد'
+
+
+def extract_contacts_from_text(text: str) -> dict:
+    text = text or ''
+    phones = re.findall(r'(?:\+98|0098|98|0)?9\d{9}|0\d{2,3}[-\s]?\d{6,8}', text)
+    emails = re.findall(r'[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}', text)
+    instas = re.findall(r'https?://(?:www\.)?instagram\.com/[A-Za-z0-9_.]+/?', text, re.I)
+    tgs = re.findall(r'https?://(?:t\.me|telegram\.me)/[A-Za-z0-9_]+/?', text, re.I)
+    contact_pages = re.findall(r'https?://[^\s"\']*(?:contact|contacts|تماس)[^\s"\']*', text, re.I)
+    return {
+        'phone': phones[0] if phones else None,
+        'email': emails[0] if emails else None,
+        'instagram': instas[0] if instas else None,
+        'telegram': tgs[0] if tgs else None,
+        'contact_page': contact_pages[0] if contact_pages else None,
+    }
+
+
+async def extract_contacts_from_url(url: str) -> dict:
+    if not url:
+        return {}
+    headers = {'User-Agent': 'GameLeadFinder/1.0 contact extraction'}
+    async with httpx.AsyncClient(timeout=18, follow_redirects=True, headers=headers) as client:
+        r = await client.get(url)
+        r.raise_for_status()
+        return extract_contacts_from_text(r.text[:1_500_000])

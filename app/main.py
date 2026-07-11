@@ -24,7 +24,7 @@ from app.db.session import Base, engine, get_db
 from app.repository import dashboard_stats, init_seed_data, upsert_lead
 from app.scoring import detect_category, score_lead
 from app.utils import public_invite_message
-from app.crm import migrate_crm_columns, seed_crm_data, can_use_provider, increment_usage
+from app.crm import migrate_crm_columns, seed_crm_data, seed_growth_data, can_use_provider, increment_usage, search_recently_run
 from app.crm_routes import router as crm_router
 
 app = FastAPI(title='بانک اطلاعاتی لیدهای گیمینگ')
@@ -184,6 +184,7 @@ def startup():
         Base.metadata.create_all(bind=engine)
         init_seed_data(db)
         seed_crm_data(db)
+        seed_growth_data(db)
     finally:
         db.close()
 
@@ -536,6 +537,7 @@ def index(
         <input name="city" placeholder="شهر؛ اختیاری" value="تهران" style="width:120px">
         <label>حداکثر لید <input type="number" name="max_results" value="10" min="1" max="30" style="width:80px"></label>
         <label>حداقل امتیاز <input type="number" name="min_score" value="60" min="0" max="100" style="width:80px"></label>
+        <label><input type="checkbox" name="force" value="1"> اجرای مجدد حتی اگر امروز اجرا شده</label>
         <button>فقط با AI سرچ کن و ذخیره کن</button>
       </form>
       <div class="muted" style="margin-top:10px">پیشنهادهای آماده سرچ:</div>{suggestion_buttons()}
@@ -551,6 +553,7 @@ def index(
         <label>تعداد query <input type="number" name="max_queries" value="6" min="1" max="20" style="width:80px"></label>
         <label>نتیجه هر query <input type="number" name="results_per_query" value="5" min="1" max="20" style="width:80px"></label>
         <label>حداقل امتیاز AI <input type="number" name="min_score" value="60" min="0" max="100" style="width:80px"></label>
+        <label><input type="checkbox" name="force" value="1"> اجرای مجدد حتی اگر امروز اجرا شده</label>
         <button>سرچ کن و لیدهای خوب را ذخیره کن</button>
       </form>
       <div class="muted" style="margin-top:10px">پیشنهادهای آماده سرچ:</div>{suggestion_buttons()}
@@ -634,6 +637,9 @@ def index(
       <a class="action" href="/crm/queue?token={h(token)}">صف جستجو</a>
       <a class="action" href="/crm/rules?token={h(token)}">Blacklist / Whitelist</a>
       <a class="action" href="/crm/api-status?token={h(token)}">وضعیت API و مصرف</a>
+      <a class="action" href="/crm/presets?token={h(token)}">Search Preset</a>
+      <a class="action" href="/crm/settings?token={h(token)}">تنظیمات سایت</a>
+      <a class="action" href="/crm/conversion?token={h(token)}">گزارش تبدیل</a>
       <div class="muted" style="margin-top:8px">صفحه جزئیات هر مخاطب از دکمه «جزئیات و تاریخچه» داخل جدول باز می‌شود.</div>
     </div>
 
@@ -653,12 +659,16 @@ async def openrouter_web_search_now(
     city: Annotated[str, Form()] = '',
     max_results: Annotated[int, Form()] = 10,
     min_score: Annotated[int, Form()] = 60,
+    force: Annotated[str | None, Form()] = None,
 ):
     check_token(token)
     topic = topic.strip()
     city = city.strip() or None
     if not topic:
         return RedirectResponse(url=f'/?token={quote_plus(token)}&ai_msg={quote_plus("موضوع جستجو خالی است")}', status_code=303)
+    if not force and search_recently_run(db, 'openrouter_web_ai', (topic + ' | ' + (city or '')), hours=24):
+        msg = 'این سرچ در ۲۴ ساعت اخیر اجرا شده؛ برای اجرای دوباره گزینه اجرای مجدد را بزن.'
+        return RedirectResponse(url=f'/?token={quote_plus(token)}&ai_msg={quote_plus(msg)}#openrouter-web-search', status_code=303)
     ok, usage_msg = can_use_provider(db, 'openrouter')
     if not ok:
         return RedirectResponse(url=f'/?token={quote_plus(token)}&ai_msg={quote_plus(usage_msg)}#openrouter-web-search', status_code=303)
@@ -688,12 +698,16 @@ async def ai_search_now(
     max_queries: Annotated[int, Form()] = 6,
     results_per_query: Annotated[int, Form()] = 5,
     min_score: Annotated[int, Form()] = 60,
+    force: Annotated[str | None, Form()] = None,
 ):
     check_token(token)
     topic = topic.strip()
     city = city.strip() or None
     if not topic:
         return RedirectResponse(url=f'/?token={quote_plus(token)}&ai_msg={quote_plus("موضوع جستجو خالی است")}', status_code=303)
+    if not force and search_recently_run(db, 'ai_search', (topic + ' | ' + (city or '')), hours=24):
+        msg = 'این سرچ در ۲۴ ساعت اخیر اجرا شده؛ برای اجرای دوباره گزینه اجرای مجدد را بزن.'
+        return RedirectResponse(url=f'/?token={quote_plus(token)}&ai_msg={quote_plus(msg)}#ai-search', status_code=303)
     ok, usage_msg = can_use_provider(db, 'tavily')
     if not ok:
         return RedirectResponse(url=f'/?token={quote_plus(token)}&ai_msg={quote_plus(usage_msg)}#ai-search', status_code=303)
