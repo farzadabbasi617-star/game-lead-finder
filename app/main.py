@@ -31,6 +31,7 @@ from app.people import router as people_router
 from app.analytics import router as analytics_router
 from app.sponsor.routes import router as sponsor_router
 from app.influencer.routes import router as influencer_router
+from app.growth.routes import router as growth_router
 
 app = FastAPI(title='بانک اطلاعاتی لیدهای گیمینگ')
 app.include_router(campaigns_router)
@@ -39,6 +40,7 @@ app.include_router(people_router)
 app.include_router(analytics_router)
 app.include_router(sponsor_router)
 app.include_router(influencer_router)
+app.include_router(growth_router)
 
 STATUS_LABELS = {
     'new': 'در انتظار بررسی',
@@ -189,6 +191,7 @@ def parse_id_list(value: str | None) -> set[int]:
 def startup():
     from app.sponsor.models import SponsorChannel  # ensure table created
     from app.influencer.models import Influencer, InfluencerTag  # ensure table created
+    from app.growth.models import LandingPage, LandingSignup, ReferralLink, ReferralClick, WelcomeMessage, ContentPost  # ensure table created
     Base.metadata.create_all(bind=engine)
     db = next(get_db())
     try:
@@ -497,6 +500,7 @@ def index(
           <a href="/analytics">📊 آنالیتیکس</a>
           <a href="/sponsor">🎯 اسپانسری</a>
           <a href="/influencer">🌟 اینفلوئنسرها</a>
+          <a href="/growth">🌱 رشد مخاطب</a>
           <a href="/campaigns">کمپین‌ها</a>
           <a href="/people">بانک افراد</a>
           <a href="/crm/queue">صف سرچ</a>
@@ -618,6 +622,7 @@ def index(
       <a class="action" href="/analytics">📊 آنالیتیکس و نمودارها</a>
       <a class="action" href="/sponsor">🎯 کانال‌های اسپانسری</a>
       <a class="action" href="/influencer">🌟 اینفلوئنسرهای گیمینگ</a>
+      <a class="action" href="/growth">🌱 رشد مخاطب + لندینگ پیج</a>
       <a class="action" href="/campaigns">کمپین‌های تبلیغاتی</a>
       <a class="action" href="/people">بانک افراد</a>
       <a class="action" href="/crm/templates">قالب‌های پیام</a>
