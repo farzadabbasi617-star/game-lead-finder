@@ -201,3 +201,47 @@ class PersonActivityLog(Base):
     action: Mapped[str] = mapped_column(String(80), nullable=False, default='note')
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+
+
+class Campaign(Base):
+    __tablename__ = 'campaigns'
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    goal: Mapped[str | None] = mapped_column(Text, nullable=True)
+    target_type: Mapped[str] = mapped_column(String(40), default='lead', nullable=False)  # lead/person/both
+    target_source: Mapped[str | None] = mapped_column(String(120), nullable=True, index=True)
+    target_category: Mapped[str | None] = mapped_column(String(120), nullable=True, index=True)
+    target_status: Mapped[str | None] = mapped_column(String(60), nullable=True, index=True)
+    target_city: Mapped[str | None] = mapped_column(String(120), nullable=True, index=True)
+    message_template_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    message_template_b_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    site_link: Mapped[str | None] = mapped_column(Text, nullable=True)
+    daily_batch_size: Mapped[int] = mapped_column(Integer, default=30, nullable=False)
+    status: Mapped[str] = mapped_column(String(40), default='active', nullable=False, index=True)
+    start_date: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    end_date: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class CampaignMember(Base):
+    __tablename__ = 'campaign_members'
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    campaign_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    entity_type: Mapped[str] = mapped_column(String(40), nullable=False, index=True)  # lead/person
+    entity_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    message_variant: Mapped[str] = mapped_column(String(5), default='A', nullable=False)
+    status: Mapped[str] = mapped_column(String(40), default='queued', nullable=False, index=True)
+    message_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    invite_link: Mapped[str | None] = mapped_column(Text, nullable=True)
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    replied_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    registered_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    follow_up_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint('campaign_id', 'entity_type', 'entity_id', name='uq_campaign_member_entity'),
+    )
