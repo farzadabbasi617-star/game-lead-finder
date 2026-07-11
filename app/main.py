@@ -26,9 +26,11 @@ from app.scoring import detect_category, score_lead
 from app.utils import public_invite_message
 from app.crm import migrate_crm_columns, seed_crm_data, seed_growth_data, can_use_provider, increment_usage, search_recently_run
 from app.crm_routes import router as crm_router
+from app.people import router as people_router
 
 app = FastAPI(title='بانک اطلاعاتی لیدهای گیمینگ')
 app.include_router(crm_router)
+app.include_router(people_router)
 
 STATUS_LABELS = {
     'new': 'در انتظار بررسی',
@@ -509,6 +511,7 @@ def index(
           <a href="#settings">کلمات و شهرها</a>
           <a href="#reports">گزارش اجراها</a>
           <a href="/crm?token={h(token)}">CRM پیشرفته</a>
+          <a href="/people?token={h(token)}">بانک افراد</a>
           <a href="/crm/queue?token={h(token)}">صف سرچ</a>
           <a href="/crm/templates?token={h(token)}">قالب پیام</a>
         </div>
@@ -633,6 +636,7 @@ def index(
     <div id="crm-shortcuts" class="card">
       <div class="section-title"><h3>ابزارهای CRM و مدیریت پروژه</h3><span class="pill">جدید</span></div>
       <a class="action" href="/crm?token={h(token)}">داشبورد CRM</a>
+      <a class="action" href="/people?token={h(token)}">بانک افراد</a>
       <a class="action" href="/crm/templates?token={h(token)}">قالب‌های پیام</a>
       <a class="action" href="/crm/queue?token={h(token)}">صف جستجو</a>
       <a class="action" href="/crm/rules?token={h(token)}">Blacklist / Whitelist</a>

@@ -157,3 +157,47 @@ class SearchPreset(Base):
     active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False, index=True)
     last_run_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class Person(Base):
+    __tablename__ = 'people'
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    full_name: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    nickname: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    role: Mapped[str | None] = mapped_column(String(120), nullable=True, index=True)
+    phone: Mapped[str | None] = mapped_column(String(120), nullable=True, index=True)
+    whatsapp: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    telegram: Mapped[str | None] = mapped_column(Text, nullable=True)
+    instagram: Mapped[str | None] = mapped_column(Text, nullable=True)
+    email: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
+    city: Mapped[str | None] = mapped_column(String(120), nullable=True, index=True)
+    source: Mapped[str | None] = mapped_column(String(120), nullable=True, index=True)
+    status: Mapped[str] = mapped_column(String(60), default='new', nullable=False, index=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    first_seen: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    last_seen: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+
+class PersonLeadLink(Base):
+    __tablename__ = 'person_lead_links'
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    person_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    lead_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    relationship: Mapped[str | None] = mapped_column(String(120), default='نامشخص', nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint('person_id', 'lead_id', name='uq_person_lead'),
+    )
+
+
+class PersonActivityLog(Base):
+    __tablename__ = 'person_activity_logs'
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    person_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    action: Mapped[str] = mapped_column(String(80), nullable=False, default='note')
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False, index=True)
