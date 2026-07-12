@@ -32,6 +32,7 @@ from app.analytics import router as analytics_router
 from app.sponsor.routes import router as sponsor_router
 from app.influencer.routes import router as influencer_router
 from app.growth.routes import router as growth_router
+from app.contacts import router as contacts_router
 
 app = FastAPI(title='بانک اطلاعاتی لیدهای گیمینگ')
 app.include_router(campaigns_router)
@@ -41,6 +42,7 @@ app.include_router(analytics_router)
 app.include_router(sponsor_router)
 app.include_router(influencer_router)
 app.include_router(growth_router)
+app.include_router(contacts_router)
 
 STATUS_LABELS = {
     'new': 'در انتظار بررسی',
@@ -561,6 +563,7 @@ def index(
           <a href="/growth">🌱 رشد مخاطب</a>
           <a href="/campaigns">کمپین‌ها</a>
           <a href="/people">بانک افراد</a>
+          <a href="/contacts">📒 مخاطبین</a>
           <a href="/crm/queue">صف سرچ</a>
           <a href="/crm/templates">قالب پیام</a>
         </div>
@@ -639,6 +642,7 @@ def index(
       <a class="action" href="/growth">🌱 رشد مخاطب</a>
       <a class="action" href="/campaigns">کمپین‌ها</a>
       <a class="action" href="/people">بانک افراد</a>
+      <a class="action" href="/contacts">📒 مخاطبین</a>
       <a class="action" href="/export.xlsx">📥 Excel</a>
       <a class="action" href="/export.csv">📥 CSV</a>
     </div>
