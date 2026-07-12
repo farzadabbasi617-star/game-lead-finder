@@ -32,16 +32,23 @@ def layout(title: str, body: str) -> HTMLResponse:
 
 
 def _member_stats(db: Session) -> dict:
-    gamer_sources = ['tg_group_member', 'marketplace_gamer', 'ig_gamer', 'forum_gamer', 'existing_group_member']
-    total = db.scalar(select(func.count(Lead.id)).where(Lead.source.in_(gamer_sources))) or 0
-    by_src = {}
-    for src in gamer_sources:
-        by_src[src] = db.scalar(select(func.count(Lead.id)).where(Lead.source == src)) or 0
-    with_phone = db.scalar(select(func.count(Lead.id)).where(Lead.source.in_(gamer_sources), Lead.phone.isnot(None))) or 0
-    with_ig = db.scalar(select(func.count(Lead.id)).where(Lead.source.in_(gamer_sources), Lead.instagram.isnot(None))) or 0
-    with_tg = db.scalar(select(func.count(Lead.id)).where(Lead.source.in_(gamer_sources), Lead.telegram.isnot(None))) or 0
-    # گروه‌های تلگرامی موجود توی دیتابیس
+    # همه لیدهایی که entity_type=gamer هستن یا از منابع ممبریاب اومدن
+    gamer_filter = or_(
+        Lead.entity_type == 'gamer',
+        Lead.source.in_(['tg_group_member', 'marketplace_gamer', 'ig_gamer', 'forum_gamer', 'existing_group_member']),
+        Lead.source.ilike('%gamer%'),
+        Lead.source.ilike('%group_member%'),
+    )
+    total = db.scalar(select(func.count(Lead.id)).where(gamer_filter)) or 0
+    with_phone = db.scalar(select(func.count(Lead.id)).where(gamer_filter, Lead.phone.isnot(None))) or 0
+    with_ig = db.scalar(select(func.count(Lead.id)).where(gamer_filter, Lead.instagram.isnot(None))) or 0
+    with_tg = db.scalar(select(func.count(Lead.id)).where(gamer_filter, Lead.telegram.isnot(None))) or 0
+    # گروه‌های تلگرام توی دیتابیس
     tg_groups = db.scalar(select(func.count(Lead.id)).where(Lead.telegram.ilike('%t.me%') | Lead.url.ilike('%t.me%'))) or 0
+    # شمارش بر اساس منبع
+    by_src = {}
+    for src in ['tg_group_member', 'marketplace_gamer', 'ig_gamer', 'forum_gamer', 'existing_group_member']:
+        by_src[src] = db.scalar(select(func.count(Lead.id)).where(Lead.source == src)) or 0
     return {'total': total, 'by_src': by_src, 'phone': with_phone, 'ig': with_ig, 'tg': with_tg, 'groups': tg_groups}
 
 
@@ -49,9 +56,15 @@ def _member_stats(db: Session) -> dict:
 def members_index(db: Session = Depends(get_db), msg: str = Query('')):
     stats = _member_stats(db)
 
-    gamer_sources = ['tg_group_member', 'marketplace_gamer', 'ig_gamer', 'forum_gamer', 'existing_group_member']
+    # همه لیدهایی که entity_type=gamer هستن یا از منابع ممبریاب اومدن
+    gamer_filter = or_(
+        Lead.entity_type == 'gamer',
+        Lead.source.in_(['tg_group_member', 'marketplace_gamer', 'ig_gamer', 'forum_gamer', 'existing_group_member']),
+        Lead.source.ilike('%gamer%'),
+        Lead.source.ilike('%group_member%'),
+    )
     recent = list(db.scalars(
-        select(Lead).where(Lead.source.in_(gamer_sources))
+        select(Lead).where(gamer_filter)
         .order_by(desc(Lead.first_seen)).limit(50)
     ).all())
 
