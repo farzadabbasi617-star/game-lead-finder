@@ -109,27 +109,56 @@ SEED_INSTAGRAM = [
 ]
 
 SEED_TELEGRAM = [
-    # کانال‌های پرمخاطب رسانه‌ای (از منابع بالا)
-    'gamefa', 'gamefa_official', 'zoomg_online', 'zoomgame_ir',
-    'bazimag', 'gamingmaster', 'gamersparadise', 'par30game',
-    'game2download', 'valdo', 'digikala_game', 'gaminginfo_ir',
-    'shahrsakht', 'sarzaminedanlod', 'gamenews_ir',
-    # کانال‌های بازی-محور فعال
-    'call_of_duty_fans', 'callofdutypr2', 'codm_iran', 'codmobile_iran',
-    'iran_pubg', 'pubg2iran', 'pubgmobile_iran', 'pubgmnew',
+    # ── کانال‌های پرمخاطب رسانه‌ای (تایید شده) ──
+    'gamefa_official', 'par30game', 'bazimag', 'valdogaming',
+    'gamingmaster', 'gamersparadise', 'game2download', 'digikala_game',
+    'gaminginfo_ir', 'shahrsakht', 'sarzaminedanlod', 'gamenews_ir',
+    'zoomg_online', 'zoomgame_ir', 'gamefa', 'gamefa_adv', 'commentsgamefa',
+    # ── کانال‌های بازی-محور ──
+    'call_of_duty_fans', 'IRPUBG', 'callofdutypr2', 'codm_iran',
+    'codmobile_iran', 'iran_pubg', 'pubg2iran', 'pubgmobile_iran',
     'freefire_ir', 'freefire_iran_official', 'clashroyale_iran',
     'clashofclans_iran', 'valorant_iran', 'valorantfa',
     'fifa_iran', 'fifa_iran_official', 'efootball_ir',
     'mlbb_iran', 'mobilelegends_iran', 'lol_iran_official',
     'apex_iran', 'fortnite_iran', 'gta_iran', 'minecraft_ir',
-    'residentevil_iran', 'gaming_raifle',
-    # فروش/آموزش/گیم پلی
-    'gaming_iran', 'gamer_iranian', 'iranian_gamers', 'game_iran_bazi',
+    'residentevil_iran', 'gaming_raifle', 'irlol',
+    'ClashTV', 'codmamadreza',
+    # ── فروش/گیم استور ──
     'ps_iran_ch', 'xbox_iranian', 'gamestore_iran', 'gamenet_channel',
-    'gameon_ir', 'game_island_ch', 'codtvchannel',
-    # فروش آیتم/سی پی/یو سی
-    'pubg2iran_admin', 'callofdutypr_shop', 'game_shop_ir',
-    'psn_star', 'psngames_iran',
+    'gameon_ir', 'game_island_ch', 'codtvchannel', 'gaming_iran',
+    'gamer_iranian', 'iranian_gamers', 'G4A4_Com', 'psn_star', 'psngames_iran',
+]
+
+# گروه‌های تلگرام گیمینگ (public group usernames)
+# نکته: خیلی از گروه‌ها private هستند و لینک joinchat دارند.
+# اینجا فقط groupهایی که username عمومی دارن جمع شده.
+SEED_TELEGRAM_GROUPS = [
+    # PUBG
+    'pubg2iran_group', 'pubgmobile_iran_group', 'iranianpubg',
+    'pubg_iran_chat', 'pubg_gap', 'pubgchat_ir',
+    # Call of Duty
+    'callofdutygaps', 'codm_iran_chat', 'callofduty_iran_group',
+    'cod_iran_gap', 'codmchat_ir',
+    # Clash
+    'ClashTVx', 'clash_iran_chat', 'clashroyale_iran_group',
+    'coc_iran_chat',
+    # Free Fire
+    'freefire_iran_group', 'freefire_gap',
+    # Valorant / LoL
+    'valorant_iran_gap', 'lol_iran_chat', 'lol_iran_group',
+    # FIFA / eFootball
+    'fifa_iran_gap', 'fifagap', 'efootball_iran_gap',
+    # PS / Xbox / PC
+    'ps4_iran_gap', 'ps5_iran_gap', 'xbox_iran_group',
+    'pcgamer_iran_group', 'gaming_iran_group',
+    # عمومی گیمینگ
+    'gamefa_group', 'zoomg_group', 'bazimag_group',
+    'gamer_iranian_chat', 'iran_gamers_gap', 'gamerland_gap',
+    'digikala_game_group',
+    # Fortnite / Apex / Minecraft / GTA
+    'fortnite_iran_gap', 'apex_iran_gap', 'minecraft_iran_gap',
+    'gta_iran_gap',
 ]
 
 
@@ -657,12 +686,19 @@ async def _process_profile(
     db: Session,
     check_activity_first: bool,
     window_days: int,
+    allow_telegram_types: tuple[str, ...] = ('channel', 'group'),
 ) -> tuple[str, dict]:
     """پردازش یک پروفایل: activity check + scrape + آماده‌سازی داده.
+
+    allow_telegram_types: کدوم نوع تلگرام قابل قبول است.
+        - ('channel',) → فقط کانال
+        - ('group',) → فقط گروه
+        - ('channel', 'group') → هر دو (پیش‌فرض)
 
     برمیگردونه (status, data) که status یکی از:
       - 'skip_inactive': فعال نبود، رد شد
       - 'skip_notfound': پیدا نشد، رد شد
+      - 'skip_wrongtype': نوع مجاز نبود (بات/کاربر)
       - 'duplicate': قبلاً بوده، آپدیت شد
       - 'saved': جدید ذخیره شد
       - 'error': خطا
@@ -675,12 +711,22 @@ async def _process_profile(
     activity: ActivityStatus | None = None
     if check_activity_first and username:
         try:
-            activity = await check_activity(platform, username, window_days)
+            if platform == 'telegram':
+                from app.influencer.activity import check_telegram_activity
+                activity = await check_telegram_activity(username, window_days,
+                                                        allow_types=allow_telegram_types)
+            else:
+                activity = await check_activity(platform, username, window_days)
             if not activity.exists:
                 return ('skip_notfound', {'reason': activity.reason})
+            # چک نوع نامعتبر (bot/user)
+            if platform == 'telegram' and activity.entity_type in ('bot', 'user'):
+                return ('skip_wrongtype', {'reason': f'نوع {activity.entity_type}',
+                                           'entity_type': activity.entity_type})
             if not activity.is_active:
                 return ('skip_inactive', {'reason': activity.reason,
-                                          'days_since': activity.days_since_last_post})
+                                          'days_since': activity.days_since_last_post,
+                                          'entity_type': activity.entity_type})
         except Exception as exc:
             logger.debug(f'Activity check {url} failed: {exc}')
             # اگر check شکست خورد، ادامه بده (شاید rate limit)
@@ -699,6 +745,8 @@ async def _process_profile(
         # آپدیت
         if info.get('followers') and (not existing.followers or info['followers'] > existing.followers):
             existing.followers = info['followers']
+        if activity and activity.members_count and (not existing.followers or activity.members_count > existing.followers):
+            existing.followers = activity.members_count
         if info.get('avg_views') and (not existing.avg_views or info['avg_views'] > existing.avg_views):
             existing.avg_views = info['avg_views']
         if info.get('engagement_rate'):
@@ -711,19 +759,32 @@ async def _process_profile(
             existing.last_post_at = activity.last_post_at
             existing.activity_checked_at = datetime.utcnow()
             existing.activity_reason = activity.reason[:300]
+            if activity.entity_type:
+                existing.entity_type = activity.entity_type
         compute_influencer_score(existing)
         db.add(existing)
         return ('duplicate', {})
 
     # ── ذخیره جدید ──
     blob = f"{info.get('display_name', '')} {info.get('bio', '')} {username}"
+    # اگر activity تعداد اعضا رو داشت و scrape نداشت، از اون استفاده کن
+    followers_final = info.get('followers') or (activity.members_count if activity else None)
+    # entity_type: اگر activity گفت، استفاده کن؛ اگر نه، از profile['entity_type_hint']، وگرنه fallback
+    entity = None
+    if activity and activity.entity_type:
+        entity = activity.entity_type
+    elif profile.get('entity_type_hint'):
+        entity = profile['entity_type_hint']
+    else:
+        entity = 'profile' if platform == 'instagram' else 'channel'
+
     inf = Influencer(
         platform=platform,
         profile_url=url,
         username=username,
         display_name=info.get('display_name') or username or 'نامشخص',
         bio=info.get('bio'),
-        followers=info.get('followers'),
+        followers=followers_final,
         following=info.get('following'),
         posts_count=info.get('posts_count'),
         avg_views=info.get('avg_views'),
@@ -731,16 +792,17 @@ async def _process_profile(
         niche=_detect_niche(blob),
         game_tags=_detect_game_tags(blob),
         language='fa' if (_has_persian(blob) or not info.get('bio')) else 'en',
-        source='seed' if username in (SEED_INSTAGRAM + SEED_TELEGRAM) else 'search',
+        source='seed' if username in (SEED_INSTAGRAM + SEED_TELEGRAM + SEED_TELEGRAM_GROUPS) else 'search',
         status='discovered',
         is_active=activity.is_active if activity else True,
         last_post_at=activity.last_post_at if activity else None,
         activity_checked_at=datetime.utcnow() if activity else None,
         activity_reason=activity.reason[:300] if activity else None,
+        entity_type=entity,
     )
     compute_influencer_score(inf)
     db.add(inf)
-    return ('saved', {})
+    return ('saved', {'entity_type': entity})
 
 
 async def discover_influencers(
@@ -754,12 +816,22 @@ async def discover_influencers(
     check_activity_first: bool = True,
     activity_window_days: int = ACTIVITY_WINDOW_DAYS,
     concurrency: int = 8,
+    include_groups: bool = True,
+    include_channels: bool = True,
 ) -> dict:
     """Run web searches to discover gaming influencers.
 
-    check_activity_first: اگر True، قبل از ذخیره چک میکنه که پیج/کانال
+    check_activity_first: اگر True، قبل از ذخیره چک میکنه که پیج/کانال/گروه
     در N روز اخیر پست جدید داشته باشه (فعال باشه).
+    include_groups: گروه‌های تلگرام هم پیدا کنه؟
+    include_channels: کانال‌های تلگرام هم پیدا کنه؟
     """
+    # allow_types برای تلگرام
+    allow_types = []
+    if include_channels: allow_types.append('channel')
+    if include_groups: allow_types.append('group')
+    if not allow_types: allow_types = ['channel', 'group']
+    allow_types_tuple = tuple(allow_types)
     search_queries: list[str] = []
     if queries:
         search_queries = [q for q in queries if q.strip()]
@@ -773,9 +845,11 @@ async def discover_influencers(
         'queries_run': 0, 'profiles_found': 0, 'new_saved': 0,
         'duplicates': 0, 'errors': [], 'backends_used': set(),
         'seed_used': 0, 'search_results_total': 0,
-        'skipped_inactive': 0, 'skipped_notfound': 0,
+        'skipped_inactive': 0, 'skipped_notfound': 0, 'skipped_wrongtype': 0,
+        'saved_channels': 0, 'saved_groups': 0, 'saved_ig': 0,
         'activity_check_enabled': check_activity_first,
         'activity_window_days': activity_window_days,
+        'allow_telegram_types': list(allow_types_tuple),
     }
     all_profiles: list[dict] = []
 
@@ -805,13 +879,21 @@ async def discover_influencers(
                 all_profiles.append({'platform': 'instagram', 'username': u,
                                      'url': f'https://instagram.com/{u}'})
                 seed_added += 1
-        if platform in ('telegram', 'both'):
+        if platform in ('telegram', 'both', 'telegram_channel'):
             for u in SEED_TELEGRAM:
                 all_profiles.append({'platform': 'telegram', 'username': u,
-                                     'url': f'https://t.me/{u}'})
+                                     'url': f'https://t.me/{u}',
+                                     'entity_type_hint': 'channel'})
+                seed_added += 1
+        # گروه‌های تلگرام (فقط اگر platform=both یا telegram_group باشه)
+        if platform in ('both', 'telegram', 'telegram_group', 'group'):
+            for u in SEED_TELEGRAM_GROUPS:
+                all_profiles.append({'platform': 'telegram', 'username': u,
+                                     'url': f'https://t.me/{u}',
+                                     'entity_type_hint': 'group'})
                 seed_added += 1
         summary['seed_used'] = seed_added
-        logger.info(f'Added {seed_added} seed profiles')
+        logger.info(f'Added {seed_added} seed profiles (channels+groups+IG)')
 
     # Deduplicate
     seen_urls: set[str] = set()
@@ -830,23 +912,33 @@ async def discover_influencers(
 
     async def _worker(prof):
         async with sem:
-            return await _process_profile(prof, db, check_activity_first, activity_window_days)
+            return await _process_profile(prof, db, check_activity_first,
+                                          activity_window_days, allow_types_tuple)
 
     results = await asyncio.gather(*(_worker(p) for p in unique_profiles), return_exceptions=True)
 
-    for res in results:
+    for res, prof in zip(results, unique_profiles):
         if isinstance(res, Exception):
             summary['errors'].append({'error': str(res)[:200]})
             continue
-        status, _data = res
+        status, data = res
         if status == 'saved':
             summary['new_saved'] += 1
+            # طبقه‌بندی
+            if prof['platform'] == 'instagram':
+                summary['saved_ig'] += 1
+            elif data.get('entity_type') == 'group':
+                summary['saved_groups'] += 1
+            else:
+                summary['saved_channels'] += 1
         elif status == 'duplicate':
             summary['duplicates'] += 1
         elif status == 'skip_inactive':
             summary['skipped_inactive'] += 1
         elif status == 'skip_notfound':
             summary['skipped_notfound'] += 1
+        elif status == 'skip_wrongtype':
+            summary['skipped_wrongtype'] += 1
 
     db.commit()
     summary['backends_used'] = sorted(summary['backends_used'])

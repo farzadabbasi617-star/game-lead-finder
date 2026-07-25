@@ -15,6 +15,7 @@ def migrate_influencer_columns(db: Session) -> None:
         'last_post_at': ('TIMESTAMP', 'NULL'),
         'activity_checked_at': ('TIMESTAMP', 'NULL'),
         'activity_reason': ('VARCHAR(300)', 'NULL'),
+        'entity_type': ('VARCHAR(20)', 'NULL'),
     }
     dialect = db.bind.dialect.name
     for name, (typ, default) in columns.items():
@@ -83,6 +84,9 @@ class Influencer(Base):
     last_post_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     activity_checked_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     activity_reason: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    # نوع entity برای تلگرام: 'channel', 'group', 'bot', 'user'
+    # برای اینستاگرام معمولاً 'profile'
+    entity_type: Mapped[str | None] = mapped_column(String(20), nullable=True, index=True)
 
     __table_args__ = (
         UniqueConstraint('profile_url', name='uq_influencer_url'),
