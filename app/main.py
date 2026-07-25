@@ -35,8 +35,9 @@ from app.growth.routes import router as growth_router
 from app.contacts import router as contacts_router
 from app.community.routes import router as community_router
 from app.members.routes import router as members_router
+from app.video_gen import video_router
 
-app = FastAPI(title='بانک اطلاعاتی لیدهای گیمینگ')
+app = FastAPI(title='بانک اطلاعاتی لیدهای گیمینگ + Video Hub')
 app.include_router(campaigns_router)
 app.include_router(crm_router)
 app.include_router(people_router)
@@ -47,6 +48,7 @@ app.include_router(growth_router)
 app.include_router(contacts_router)
 app.include_router(community_router)
 app.include_router(members_router)
+app.include_router(video_router)
 
 STATUS_LABELS = {
     'new': 'در انتظار بررسی',
