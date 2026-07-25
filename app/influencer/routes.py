@@ -29,7 +29,9 @@ INF_STATUS = {'discovered': 'کشف شده', 'researching': 'در حال برر�
 TIER_LABELS = {'nano': ('⚪', 'نانو (زیر ۱K)', '#9ca3af'), 'micro': ('🔵', 'مایکرو (۱-۱۰K)', '#2563eb'), 'mid': ('🟢', 'مید (۱۰-۱۰۰K)', '#12b76a'), 'macro': ('🟡', 'ماکرو (۱۰۰K-1M)', '#f79009'), 'mega': ('🔴', 'مگا (بالای 1M)', '#f04438')}
 PLATFORM_META = {'instagram': ('📸', 'اینستاگرام', '#e1306c'), 'telegram': ('✈️', 'تلگرام', '#0088cc')}
 
-MIN_FOLLOWERS = 1000  # حداقل فالوور برای نمایش
+# میکرو اینفلوئنسر: از ۱۰۰۰ فالوور به بالا. برای اینکه چیزی پیدا بشه، در حالت نمایش کاهش دادیم به ۵۰۰
+# چون خیلی از پیج‌های تازه‌کار زیر ۱۰۰۰ هستن ولی مرتبطن
+MIN_FOLLOWERS = 500  # حداقل فالوور برای نمایش (قبلاً ۱۰۰۰ بود)
 
 
 def h(v) -> str:
@@ -198,27 +200,116 @@ def influencer_index(db: Session = Depends(get_db), platform: str = Query(''), n
 
 @router.get('/influencer/discover', response_class=HTMLResponse)
 def discover_page():
-    from app.influencer.collector import INSTAGRAM_QUERIES, TELEGRAM_QUERIES
-    # فقط کوئری‌های فارسی/ایرانی
-    iranian_queries = [q for q in INSTAGRAM_QUERIES[:8] + TELEGRAM_QUERIES[:6] if any(kw in q for kw in ['ایران', 'فارسی', 'iran'])]
-    if not iranian_queries:
-        iranian_queries = INSTAGRAM_QUERIES[:5] + TELEGRAM_QUERIES[:4]
-    cb = ''.join(f'<label style="display:block;margin:3px 0"><input type="checkbox" name="queries" value="{h(q)}" checked> {h(q)}</label>' for q in iranian_queries)
-    body = f'''<div class="card"><h3>🔍 کشف اینفلوئنسرهای ایرانی</h3><p class="muted">فقط اینفلوئنسرهای ایرانی با بالای ۱۰۰۰ فالوور ذخیره میشن.</p><form method="post" action="/influencer/discover"><h4>عبارت‌های جستجو:</h4>{cb}<div style="margin-top:10px"><select name="platform"><option value="both">اینستاگرام + تلگرام</option><option value="instagram">فقط اینستاگرام</option><option value="telegram">فقط تلگرام</option></select><label>نتیجه هر جستجو <input type="number" name="max_results" value="8" min="1" max="20" style="width:80px"></label></div><div style="margin-top:10px"><button>🚀 شروع کشف</button></div></form></div>
-    <div class="card"><h3>➕ افزودن دستی</h3><form method="post" action="/influencer/manual"><input name="profile_url" placeholder="لینک پروفایل" required style="min-width:300px"><input name="display_name" placeholder="نام"><input name="niche" placeholder="نیچ"><button class="btn2">افزودن</button></form></div>'''
+    from app.influencer.collector import INSTAGRAM_QUERIES, TELEGRAM_QUERIES, SEED_INSTAGRAM, SEED_TELEGRAM
+    from app.config import get_settings
+    settings = get_settings()
+
+    backends_status = []
+    for name, key_attr in [('SerpAPI', 'serpapi_key'), ('Serper', 'serper_api_key'),
+                            ('Brave', 'brave_search_api_key'), ('SearchAPI', 'searchapi_key'),
+                            ('Tavily', 'tavily_api_key'), ('OpenRouter', 'openrouter_api_key'),
+                            ('Groq', 'groq_api_key')]:
+        active = bool(getattr(settings, key_attr, None))
+        icon = '✅' if active else '⚪'
+        backends_status.append(f'{icon} {name}')
+    if settings.google_cse_api_key and settings.google_cse_id:
+        backends_status.append('✅ Google CSE')
+    backends_status.append('🆓 DuckDuckGo (بدون کلید)')
+
+    ig_cb = ''.join(f'<label style="display:block;margin:3px 0"><input type="checkbox" name="queries" value="{h(q)}" checked> {h(q)}</label>' for q in INSTAGRAM_QUERIES)
+    tg_cb = ''.join(f'<label style="display:block;margin:3px 0"><input type="checkbox" name="queries" value="{h(q)}" checked> {h(q)}</label>' for q in TELEGRAM_QUERIES)
+
+    body = f'''
+    <div class="card">
+      <h3>🔍 کشف اینفلوئنسرهای گیمینگ ایرانی</h3>
+      <p class="muted">
+        <b>حداقل ۵۰۰ فالوور</b> ذخیره میشن. اینفلوئنسرها از دو منبع:<br>
+        ۱) <b>جستجوی وب</b> با کوئری‌های پایین<br>
+        ۲) <b>لیست seed</b> از {len(SEED_INSTAGRAM)} پیج اینستا + {len(SEED_TELEGRAM)} کانال تلگرام شناخته‌شده ایرانی
+      </p>
+      <div class="hint">
+        <b>🔌 Search Backends:</b><br>{" · ".join(backends_status)}
+        <br><small>حتی اگه هیچ API key نداشته باشی، DuckDuckGo و لیست seed کار میکنن.</small>
+      </div>
+      <form method="post" action="/influencer/discover" style="margin-top:14px">
+        <div style="margin-bottom:12px">
+          <label><input type="checkbox" name="use_seed" value="yes" checked> ✨ استفاده از لیست seed (توصیه شده)</label>
+        </div>
+        <div class="grid2">
+          <div>
+            <h4>📸 کوئری‌های اینستاگرام ({len(INSTAGRAM_QUERIES)})</h4>
+            <div style="max-height:260px;overflow:auto;padding:8px;background:#fdf2f8;border-radius:8px">{ig_cb}</div>
+          </div>
+          <div>
+            <h4>✈️ کوئری‌های تلگرام ({len(TELEGRAM_QUERIES)})</h4>
+            <div style="max-height:260px;overflow:auto;padding:8px;background:#fdf2f8;border-radius:8px">{tg_cb}</div>
+          </div>
+        </div>
+        <div style="margin-top:14px">
+          <label>پلتفرم:
+            <select name="platform">
+              <option value="both">اینستا + تلگرام</option>
+              <option value="instagram">فقط اینستا</option>
+              <option value="telegram">فقط تلگرام</option>
+            </select>
+          </label>
+          <label style="margin-right:10px">نتیجه هر جستجو:
+            <input type="number" name="max_results" value="8" min="1" max="20" style="width:70px">
+          </label>
+        </div>
+        <div style="margin-top:14px">
+          <button style="font-size:15px;padding:11px 20px">🚀 شروع کشف اینفلوئنسر</button>
+          <small class="muted" style="margin-right:10px">۳۰-۹۰ ثانیه طول میکشه</small>
+        </div>
+      </form>
+    </div>
+    <div class="card">
+      <h3>➕ افزودن دستی</h3>
+      <p class="muted">اگر پیج/کانال خاصی میشناسی:</p>
+      <form method="post" action="/influencer/manual">
+        <input name="profile_url" placeholder="https://instagram.com/user یا https://t.me/channel" required style="min-width:340px">
+        <input name="display_name" placeholder="نام (اختیاری)">
+        <input name="niche" placeholder="نیچ (اختیاری)">
+        <button class="btn2">افزودن</button>
+      </form>
+    </div>
+    '''
     return layout('کشف اینفلوئنسر', body)
 
 
 @router.post('/influencer/discover')
-async def discover_run(db: Session = Depends(get_db), platform: Annotated[str, Form()] = 'both', max_results: Annotated[int, Form()] = 8, min_score: Annotated[int, Form()] = 15, queries: Annotated[list[str] | None, Form()] = None):
-    result = await discover_influencers(db, platform=platform, queries=queries, max_results_per_query=max_results, min_collab_score=0)
-    # بعد از کشف، پروفایل‌های غیرایرانی و زیر ۱۰۰۰ رو حذف کن
-    cleaned = db.execute(select(Influencer).where((Influencer.language != 'fa') | (Influencer.followers < MIN_FOLLOWERS) | (Influencer.followers.is_(None)))).scalars().all()
+async def discover_run(db: Session = Depends(get_db), platform: Annotated[str, Form()] = 'both', max_results: Annotated[int, Form()] = 8, min_score: Annotated[int, Form()] = 0, queries: Annotated[list[str] | None, Form()] = None, use_seed: Annotated[str, Form()] = 'yes'):
+    # queries خالی رو فیلتر کن
+    queries_clean = [q for q in (queries or []) if q and q.strip()] or None
+    result = await discover_influencers(
+        db, platform=platform, queries=queries_clean,
+        max_results_per_query=max_results, min_collab_score=0,
+        use_seed_list=(use_seed == 'yes'),
+    )
+
+    # فقط پروفایل‌های خیلی ضعیف رو پاک کن (نه پروفایل‌های scrape نشده!)
+    # اگر followers یه چیزی داشت ولی زیر ۵۰۰ بود، پاک کن
+    cleaned = db.execute(
+        select(Influencer).where(
+            Influencer.followers.isnot(None),
+            Influencer.followers > 0,
+            Influencer.followers < MIN_FOLLOWERS,
+        )
+    ).scalars().all()
     clean_count = len(cleaned)
     for inf in cleaned:
         db.delete(inf)
     db.commit()
-    msg = f"کشف: {result['queries_run']} جستجو، {result['profiles_found']} پروفایل، {result['new_saved']} جدید، {result['duplicates']} تکراری. پاکسازی: {clean_count} پروفایل غیرایرانی/ضعیف حذف شد."
+
+    backends = ', '.join(result.get('backends_used') or []) or 'هیچ backend فعال نبود'
+    msg = (f"✅ کشف انجام شد: {result['queries_run']} جستجو، "
+           f"{result['search_results_total']} نتیجه وب، "
+           f"{result.get('seed_used', 0)} پروفایل seed، "
+           f"{result['profiles_found']} پروفایل یکتا، "
+           f"{result['new_saved']} جدید، {result['duplicates']} تکراری. "
+           f"{clean_count} پروفایل خیلی ضعیف حذف شد. Backends: {backends}")
+    if result.get('errors'):
+        msg += f" ⚠️ {len(result['errors'])} خطا رخ داد."
     return RedirectResponse(url=f'/influencer?msg={quote_plus(msg)}', status_code=303)
 
 
