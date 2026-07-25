@@ -13,8 +13,20 @@ from .registry import (
     Provider, VideoTaskType,
 )
 from .runners import GenerationRequest, generate
+from .backend_bridge import (
+    get_backend_url, set_backend_url, backend_health, remote_generate,
+)
 
 router = APIRouter(prefix="/video", tags=["video-gen"])
+
+
+def _has_local_gpu() -> bool:
+    """چک میکنه GPU لوکال داره یا باید از backend استفاده کنه."""
+    try:
+        import torch
+        return torch.cuda.is_available()
+    except Exception:
+        return False
 
 
 @router.get("/models")
@@ -83,12 +95,34 @@ def generate_video(
         seed=seed, guidance_scale=guidance_scale,
         num_inference_steps=num_inference_steps,
     )
-    result = generate(req)
+
+    # اگر backend GPU وصله و مدل diffusers هست، بفرست به backend
+    use_backend = get_backend_url() and m.provider.value in ("hf_diffusers", "huggingface", "github")
+    if use_backend and not _has_local_gpu():
+        result = remote_generate(req)
+        source = "remote_backend"
+    else:
+        result = generate(req)
+        source = "local"
+
     return {
         "ok": result.ok, "error": result.error, "output_path": result.output_path,
         "elapsed_sec": round(result.elapsed_sec, 2), "logs": result.logs,
-        "model_id": result.model_id,
+        "model_id": result.model_id, "source": source,
     }
+
+
+@router.get("/backend")
+def backend_info():
+    """اطلاعات backend GPU متصل (Colab/RunPod/...)."""
+    return backend_health()
+
+
+@router.post("/backend")
+def set_backend(url: str = Form(...)):
+    """آدرس backend رو تنظیم میکنه (مثلاً آدرس ngrok از Colab)."""
+    set_backend_url(url)
+    return {"ok": True, "url": get_backend_url(), "health": backend_health()}
 
 
 @router.get("/download")
@@ -196,10 +230,15 @@ body{{font-family:Tahoma,sans-serif;background:#f8fafc;margin:0;padding:20px;col
 
 <div class="generator">
   <h2>🚀 تولید ویدیو</h2>
-  <div class="warn">
-    ⚠️ سرورهای معمولی FastAPI GPU ندارن - برای اجرای واقعی مدل‌ها از
-    <b>نوت‌بوک Colab</b> (فایل <code>colab/video_hub_colab.ipynb</code>) استفاده کنید.
-    این صفحه برای مرور، فیلتر و تست API طراحی شده.
+  <div class="warn" id="backend-status">
+    ⏳ در حال بررسی اتصال به GPU backend...
+  </div>
+  <div style="background:#e0e7ff;padding:12px;border-radius:8px;margin:8px 0">
+    <b>🔗 GPU Backend (Colab):</b><br>
+    <small>برای تولید ویدیو، نوت‌بوک <code>colab/video_hub_colab.ipynb</code> رو در Colab باز کن،
+    اجرا کن، بعد آدرس ngrok که میده رو اینجا بذار:</small><br>
+    <input id="backend-url" placeholder="https://abc123.ngrok-free.app" style="width:60%;padding:6px;margin-top:6px">
+    <button onclick="setBackend()" style="background:#6366f1;color:white;border:none;padding:6px 12px;border-radius:6px;cursor:pointer">اتصال</button>
   </div>
   <label>مدل:</label>
   <select id="model">{options}</select>
@@ -247,6 +286,31 @@ body{{font-family:Tahoma,sans-serif;background:#f8fafc;margin:0;padding:20px;col
 <div class="grid" id="grid">{''.join(cards)}</div>
 
 <script>
+async function checkBackend(){{
+  try{{
+    const r=await fetch('/video/backend');
+    const j=await r.json();
+    const el=document.getElementById('backend-status');
+    if(j.connected){{
+      el.style.background='#d1fae5';
+      el.style.borderLeftColor='#10b981';
+      el.innerHTML='✅ متصل به GPU backend: <b>'+j.url+'</b> · GPU: '+(j.gpu||'?')+' · VRAM: '+(j.vram_gb||'?')+'GB';
+    }}else{{
+      el.innerHTML='⚠️ GPU backend وصل نیست: '+(j.error||'')+'<br><small>روی Render بدون Colab فقط میتونی مدل‌ها رو مرور کنی، تولید کار نمیکنه.</small>';
+    }}
+  }}catch(e){{}}
+}}
+async function setBackend(){{
+  const url=document.getElementById('backend-url').value;
+  const fd=new FormData(); fd.append('url',url);
+  const r=await fetch('/video/backend',{{method:'POST',body:fd}});
+  const j=await r.json();
+  alert(j.health.connected?'✅ متصل شد!':'❌ اتصال شکست: '+j.health.error);
+  checkBackend();
+}}
+checkBackend();
+setInterval(checkBackend, 30000);
+
 function pickModel(id){{
   document.getElementById('model').value=id;
   window.scrollTo({{top:0,behavior:'smooth'}});
