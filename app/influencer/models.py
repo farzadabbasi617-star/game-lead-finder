@@ -2,10 +2,33 @@
 from __future__ import annotations
 
 from datetime import datetime
-from sqlalchemy import Boolean, DateTime, Float, Integer, String, Text, UniqueConstraint
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy import Boolean, DateTime, Float, Integer, String, Text, UniqueConstraint, text
+from sqlalchemy.orm import Mapped, mapped_column, Session
 
 from app.db.session import Base
+
+
+def migrate_influencer_columns(db: Session) -> None:
+    """اضافه کردن ستون‌های جدید فعالیت به جدول influencers (idempotent)."""
+    columns = {
+        'is_active': ('BOOLEAN', 'TRUE'),
+        'last_post_at': ('TIMESTAMP', 'NULL'),
+        'activity_checked_at': ('TIMESTAMP', 'NULL'),
+        'activity_reason': ('VARCHAR(300)', 'NULL'),
+    }
+    dialect = db.bind.dialect.name
+    for name, (typ, default) in columns.items():
+        try:
+            if dialect == 'postgresql':
+                db.execute(text(f'ALTER TABLE influencers ADD COLUMN IF NOT EXISTS {name} {typ} DEFAULT {default}'))
+            else:
+                existing = [row[1] for row in db.execute(text('PRAGMA table_info(influencers)')).fetchall()]
+                if name not in existing:
+                    default_clause = f' DEFAULT {default}' if default and default != 'NULL' else ''
+                    db.execute(text(f'ALTER TABLE influencers ADD COLUMN {name} {typ}{default_clause}'))
+        except Exception:
+            db.rollback()
+    db.commit()
 
 
 class Influencer(Base):
@@ -54,6 +77,12 @@ class Influencer(Base):
     source: Mapped[str] = mapped_column(String(80), default='search', nullable=False)
     first_seen: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
     last_seen: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    # Activity tracking (فعال بودن پیج/کانال)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False, index=True)
+    last_post_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    activity_checked_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    activity_reason: Mapped[str | None] = mapped_column(String(300), nullable=True)
 
     __table_args__ = (
         UniqueConstraint('profile_url', name='uq_influencer_url'),

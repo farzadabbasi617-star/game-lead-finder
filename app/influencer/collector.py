@@ -16,7 +16,9 @@ import re
 from datetime import datetime
 from urllib.parse import quote_plus
 
+import asyncio
 import httpx
+from datetime import datetime
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -24,6 +26,7 @@ from app.config import get_settings
 from app.repository import start_run, finish_run
 from app.influencer.models import Influencer
 from app.influencer.scoring import compute_influencer_score
+from app.influencer.activity import check_activity, ActivityStatus, ACTIVITY_WINDOW_DAYS
 
 logger = logging.getLogger('influencer.collector')
 logger.setLevel(logging.INFO)
@@ -69,26 +72,64 @@ TELEGRAM_QUERIES = [
 
 
 # ─── Seed list — پیج/کانال‌های شناخته‌شده گیمینگ ایرانی ──────────────
-# اگر جستجوی وب کار نکرد، حداقل این لیست کامل رو داریم
+# لیست گسترده — قبل از ذخیره چک میشه که فعال باشن (پست ۳۰ روز اخیر)
+# منابع: canalha.ir, shabakeh-mag, streamscharts, atlanticcouncil report
 
 SEED_INSTAGRAM = [
-    'gamefa', 'zoomg_online', 'zoomgame', 'digital_daily', 'digikala_game',
-    'irangamer.ir', 'iran_pubg', 'pubg.iran.official', 'callofdutyiran',
-    'gamerandme', 'gameinfo.ir', 'shahrsakhtafzar', 'clashiran',
-    'freefireiran', 'freefireir', 'gamefun.ir', 'lol_iran',
-    'yaser_gamer', 'iran_game_store', 'games4iran', 'psniraan',
-    'ps5.iran', 'xbox_iran', 'nintendo_iran', 'pc_gamer_iran',
-    'gamenet_iran', 'gamerland.ir', 'oddgamer', 'gameon_ir',
-    'iranfifa', 'fifagamer.ir', 'mobile_gamer_iran', 'valorantiran',
+    # رسانه‌های خبری/تحلیلی گیمینگ
+    'gamefa', 'gamefa.official', 'zoomg_online', 'zoomgame', 'bazimag',
+    'digital_daily', 'digikala_game', 'digipubg', 'shahrsakhtafzar',
+    'gamingmaster.ir', 'par30game', 'game2download', 'valdogaming',
+    'gameinfo.ir', 'gaming.tv.ir', 'gamefun.ir', 'gamerland.ir',
+    'gamer.gamer.gamer', 'oddgamer', 'gameon_ir',
+    # پیج‌های استریمر/گیمر
+    'melinabeleyk', 'yaser_gamer', 'yaser.gamer', 'amirphanthom',
+    'amireyzed', 'keoxer.official', 'nichoqu', 'x1rony',
+    'iranian.gamer.official', 'gamer_irani', 'gamer.iran',
+    'persiangamer.official', 'gamer.ir', 'gamerandme', 'irangamer.ir',
+    # بازی-محور: PUBG/CoD/Free Fire/Clash/Valorant/FIFA/LoL/MLBB
+    'iran_pubg', 'pubg.iran.official', 'pubg_iran_official',
+    'pubgmobile.iran', 'pubg_mobile_ir', 'callofdutyiran',
+    'callofduty.iran', 'codm.iran', 'cod_mobile_iran',
+    'freefireiran', 'freefireir', 'freefire.iran.official',
+    'clashiran', 'clashroyale.iran', 'clash_of_clans_iran',
+    'valorantiran', 'valorant.iran.official', 'lol_iran', 'lolir.official',
+    'iranfifa', 'fifagamer.ir', 'fifa_iran.official', 'efootball.iran',
+    'mobilelegends.iran', 'mlbb_iran_official', 'apex.iran',
+    'fortniteiran', 'fortnite.persian', 'gtav.iran', 'gta_iran_official',
+    'minecraft.iran', 'minecraftiran.ir', 'wildrift.iran',
+    # کنسول‌ها و PC
+    'psniraan', 'ps5.iran', 'ps5iran.official', 'ps.iran',
+    'xbox_iran', 'xboxiran.official', 'nintendo_iran', 'nintendoswitch.iran',
+    'pc_gamer_iran', 'pcgamer.iran', 'pcgame.ir',
+    # فروشگاه/گیم نت (اسپانسر پتانسیل)
+    'iran_game_store', 'games4iran', 'gamenet_iran', 'gamenetiran.ir',
+    'game_shop_iran', 'gameshop.iran', 'gamestore.ir',
+    'mobile_gamer_iran', 'mobilegame.iran',
 ]
 
 SEED_TELEGRAM = [
-    'gamefa', 'zoomg_online', 'iran_pubg', 'callofdutyiran_ir',
-    'freefire_ir', 'clashroyale_iran', 'valorant_iran', 'fifa_iran',
-    'gaming_iran', 'gamer_iranian', 'gamenet_channel', 'gameon_ir',
-    'yasergamer', 'pubgmobile_iran', 'codmobile_iran', 'mlbb_iran',
-    'game_iran_bazi', 'iranian_gamers', 'gameinfo_ir', 'ps_iran_ch',
-    'xbox_iranian', 'gamestore_iran', 'digikala_game', 'zoomgame_ir',
+    # کانال‌های پرمخاطب رسانه‌ای (از منابع بالا)
+    'gamefa', 'gamefa_official', 'zoomg_online', 'zoomgame_ir',
+    'bazimag', 'gamingmaster', 'gamersparadise', 'par30game',
+    'game2download', 'valdo', 'digikala_game', 'gaminginfo_ir',
+    'shahrsakht', 'sarzaminedanlod', 'gamenews_ir',
+    # کانال‌های بازی-محور فعال
+    'call_of_duty_fans', 'callofdutypr2', 'codm_iran', 'codmobile_iran',
+    'iran_pubg', 'pubg2iran', 'pubgmobile_iran', 'pubgmnew',
+    'freefire_ir', 'freefire_iran_official', 'clashroyale_iran',
+    'clashofclans_iran', 'valorant_iran', 'valorantfa',
+    'fifa_iran', 'fifa_iran_official', 'efootball_ir',
+    'mlbb_iran', 'mobilelegends_iran', 'lol_iran_official',
+    'apex_iran', 'fortnite_iran', 'gta_iran', 'minecraft_ir',
+    'residentevil_iran', 'gaming_raifle',
+    # فروش/آموزش/گیم پلی
+    'gaming_iran', 'gamer_iranian', 'iranian_gamers', 'game_iran_bazi',
+    'ps_iran_ch', 'xbox_iranian', 'gamestore_iran', 'gamenet_channel',
+    'gameon_ir', 'game_island_ch', 'codtvchannel',
+    # فروش آیتم/سی پی/یو سی
+    'pubg2iran_admin', 'callofdutypr_shop', 'game_shop_ir',
+    'psn_star', 'psngames_iran',
 ]
 
 
@@ -611,6 +652,97 @@ def _has_persian(text: str) -> bool:
 
 # ─── Main collector ────────────────────────────────────────────────
 
+async def _process_profile(
+    profile: dict,
+    db: Session,
+    check_activity_first: bool,
+    window_days: int,
+) -> tuple[str, dict]:
+    """پردازش یک پروفایل: activity check + scrape + آماده‌سازی داده.
+
+    برمیگردونه (status, data) که status یکی از:
+      - 'skip_inactive': فعال نبود، رد شد
+      - 'skip_notfound': پیدا نشد، رد شد
+      - 'duplicate': قبلاً بوده، آپدیت شد
+      - 'saved': جدید ذخیره شد
+      - 'error': خطا
+    """
+    url = profile['url']
+    username = profile.get('username', '')
+    platform = profile['platform']
+
+    # ── مرحله ۱: activity check ──
+    activity: ActivityStatus | None = None
+    if check_activity_first and username:
+        try:
+            activity = await check_activity(platform, username, window_days)
+            if not activity.exists:
+                return ('skip_notfound', {'reason': activity.reason})
+            if not activity.is_active:
+                return ('skip_inactive', {'reason': activity.reason,
+                                          'days_since': activity.days_since_last_post})
+        except Exception as exc:
+            logger.debug(f'Activity check {url} failed: {exc}')
+            # اگر check شکست خورد، ادامه بده (شاید rate limit)
+
+    # ── مرحله ۲: چک تکراری بودن ──
+    existing = db.scalar(select(Influencer).where(Influencer.profile_url == url))
+
+    # ── مرحله ۳: scrape ──
+    try:
+        info = await _scrape(profile)
+    except Exception as exc:
+        info = {}
+        logger.debug(f'Scrape {url} failed: {exc}')
+
+    if existing:
+        # آپدیت
+        if info.get('followers') and (not existing.followers or info['followers'] > existing.followers):
+            existing.followers = info['followers']
+        if info.get('avg_views') and (not existing.avg_views or info['avg_views'] > existing.avg_views):
+            existing.avg_views = info['avg_views']
+        if info.get('engagement_rate'):
+            existing.engagement_rate = info['engagement_rate']
+        if info.get('bio') and not existing.bio:
+            existing.bio = info['bio']
+        existing.last_seen = datetime.utcnow()
+        if activity:
+            existing.is_active = activity.is_active
+            existing.last_post_at = activity.last_post_at
+            existing.activity_checked_at = datetime.utcnow()
+            existing.activity_reason = activity.reason[:300]
+        compute_influencer_score(existing)
+        db.add(existing)
+        return ('duplicate', {})
+
+    # ── ذخیره جدید ──
+    blob = f"{info.get('display_name', '')} {info.get('bio', '')} {username}"
+    inf = Influencer(
+        platform=platform,
+        profile_url=url,
+        username=username,
+        display_name=info.get('display_name') or username or 'نامشخص',
+        bio=info.get('bio'),
+        followers=info.get('followers'),
+        following=info.get('following'),
+        posts_count=info.get('posts_count'),
+        avg_views=info.get('avg_views'),
+        engagement_rate=info.get('engagement_rate'),
+        niche=_detect_niche(blob),
+        game_tags=_detect_game_tags(blob),
+        language='fa' if (_has_persian(blob) or not info.get('bio')) else 'en',
+        source='seed' if username in (SEED_INSTAGRAM + SEED_TELEGRAM) else 'search',
+        status='discovered',
+        is_active=activity.is_active if activity else True,
+        last_post_at=activity.last_post_at if activity else None,
+        activity_checked_at=datetime.utcnow() if activity else None,
+        activity_reason=activity.reason[:300] if activity else None,
+    )
+    compute_influencer_score(inf)
+    db.add(inf)
+    return ('saved', {})
+
+
 async def discover_influencers(
     db: Session,
     *,
@@ -619,12 +751,14 @@ async def discover_influencers(
     max_results_per_query: int = 8,
     min_collab_score: int = 0,
     use_seed_list: bool = True,
+    check_activity_first: bool = True,
+    activity_window_days: int = ACTIVITY_WINDOW_DAYS,
+    concurrency: int = 8,
 ) -> dict:
     """Run web searches to discover gaming influencers.
 
-    برمیگردونه:
-        summary dict شامل: queries_run, profiles_found, new_saved, duplicates,
-        errors, backends_used, seed_used
+    check_activity_first: اگر True، قبل از ذخیره چک میکنه که پیج/کانال
+    در N روز اخیر پست جدید داشته باشه (فعال باشه).
     """
     search_queries: list[str] = []
     if queries:
@@ -639,6 +773,9 @@ async def discover_influencers(
         'queries_run': 0, 'profiles_found': 0, 'new_saved': 0,
         'duplicates': 0, 'errors': [], 'backends_used': set(),
         'seed_used': 0, 'search_results_total': 0,
+        'skipped_inactive': 0, 'skipped_notfound': 0,
+        'activity_check_enabled': check_activity_first,
+        'activity_window_days': activity_window_days,
     }
     all_profiles: list[dict] = []
 
@@ -660,7 +797,7 @@ async def discover_influencers(
             finish_run(db, run, 0, 0, str(exc)[:200])
             logger.error(f'query="{query}" exception: {exc}')
 
-    # ── Seed list — همیشه اضافه کن اگر use_seed_list=True ──
+    # ── Seed list ──
     if use_seed_list:
         seed_added = 0
         if platform in ('instagram', 'both'):
@@ -685,58 +822,86 @@ async def discover_influencers(
             unique_profiles.append(p)
 
     summary['profiles_found'] = len(unique_profiles)
-    logger.info(f'Total unique profiles to process: {len(unique_profiles)}')
+    logger.info(f'Total unique profiles: {len(unique_profiles)}, '
+                f'activity_check={check_activity_first}')
 
-    # Scrape و ذخیره
-    for profile in unique_profiles:
-        url = profile['url']
-        existing = db.scalar(select(Influencer).where(Influencer.profile_url == url))
-        try:
-            info = await _scrape(profile)
-        except Exception as exc:
-            info = {}
-            logger.debug(f'Scrape {url} failed: {exc}')
+    # ── پردازش موازی (با محدودیت concurrency) ──
+    sem = asyncio.Semaphore(concurrency)
 
-        if existing:
-            summary['duplicates'] += 1
-            if info.get('followers') and (not existing.followers or info['followers'] > existing.followers):
-                existing.followers = info['followers']
-            if info.get('avg_views') and (not existing.avg_views or info['avg_views'] > existing.avg_views):
-                existing.avg_views = info['avg_views']
-            if info.get('engagement_rate'):
-                existing.engagement_rate = info['engagement_rate']
-            if info.get('bio') and not existing.bio:
-                existing.bio = info['bio']
-            existing.last_seen = datetime.utcnow()
-            compute_influencer_score(existing)
-            db.add(existing)
+    async def _worker(prof):
+        async with sem:
+            return await _process_profile(prof, db, check_activity_first, activity_window_days)
+
+    results = await asyncio.gather(*(_worker(p) for p in unique_profiles), return_exceptions=True)
+
+    for res in results:
+        if isinstance(res, Exception):
+            summary['errors'].append({'error': str(res)[:200]})
             continue
-
-        blob = f"{info.get('display_name', '')} {info.get('bio', '')} {profile.get('username', '')}"
-
-        inf = Influencer(
-            platform=profile['platform'],
-            profile_url=url,
-            username=profile.get('username'),
-            display_name=info.get('display_name') or profile.get('username') or 'نامشخص',
-            bio=info.get('bio'),
-            followers=info.get('followers'),
-            following=info.get('following'),
-            posts_count=info.get('posts_count'),
-            avg_views=info.get('avg_views'),
-            engagement_rate=info.get('engagement_rate'),
-            niche=_detect_niche(blob),
-            game_tags=_detect_game_tags(blob),
-            # زبان: اگه فارسی توی متن بود یا اسم منبع نداشت، fa فرض کن (چون از seed ایرانی هست)
-            language='fa' if (_has_persian(blob) or not info.get('bio')) else 'en',
-            source='seed' if profile.get('username') in (SEED_INSTAGRAM + SEED_TELEGRAM) else 'search',
-            status='discovered',
-        )
-        compute_influencer_score(inf)
-        db.add(inf)
-        summary['new_saved'] += 1
+        status, _data = res
+        if status == 'saved':
+            summary['new_saved'] += 1
+        elif status == 'duplicate':
+            summary['duplicates'] += 1
+        elif status == 'skip_inactive':
+            summary['skipped_inactive'] += 1
+        elif status == 'skip_notfound':
+            summary['skipped_notfound'] += 1
 
     db.commit()
     summary['backends_used'] = sorted(summary['backends_used'])
     logger.info(f'Discovery complete: {summary}')
+    return summary
+
+
+async def recheck_all_activity(db: Session, window_days: int = ACTIVITY_WINDOW_DAYS,
+                                concurrency: int = 8, delete_inactive: bool = False) -> dict:
+    """چک مجدد فعالیت همه اینفلوئنسرهای موجود در DB.
+
+    اگر delete_inactive=True، غیرفعال‌ها رو پاک میکنه. وگرنه فقط is_active=False میذاره.
+    """
+    influencers = list(db.scalars(select(Influencer).where(Influencer.username.isnot(None))).all())
+    summary = {
+        'total_checked': len(influencers), 'active': 0, 'inactive': 0,
+        'notfound': 0, 'errors': 0, 'deleted': 0,
+    }
+    sem = asyncio.Semaphore(concurrency)
+
+    async def _check(inf):
+        async with sem:
+            try:
+                st = await check_activity(inf.platform, inf.username, window_days)
+                return inf, st
+            except Exception as exc:
+                logger.debug(f'Recheck {inf.username} exc: {exc}')
+                return inf, None
+
+    results = await asyncio.gather(*(_check(i) for i in influencers))
+    to_delete = []
+    for inf, st in results:
+        if st is None:
+            summary['errors'] += 1
+            continue
+        inf.activity_checked_at = datetime.utcnow()
+        inf.activity_reason = st.reason[:300]
+        inf.is_active = st.is_active
+        inf.last_post_at = st.last_post_at
+        if not st.exists:
+            summary['notfound'] += 1
+            if delete_inactive:
+                to_delete.append(inf)
+        elif st.is_active:
+            summary['active'] += 1
+        else:
+            summary['inactive'] += 1
+            if delete_inactive:
+                to_delete.append(inf)
+        db.add(inf)
+
+    for inf in to_delete:
+        db.delete(inf)
+        summary['deleted'] += 1
+
+    db.commit()
+    logger.info(f'Recheck complete: {summary}')
     return summary

@@ -19,7 +19,8 @@ from sqlalchemy.orm import Session
 
 from app.db.session import get_db
 from app.influencer.models import Influencer
-from app.influencer.collector import discover_influencers, scrape_instagram_profile, scrape_telegram_channel, _detect_niche, _detect_game_tags
+from app.influencer.collector import discover_influencers, scrape_instagram_profile, scrape_telegram_channel, _detect_niche, _detect_game_tags, recheck_all_activity
+from app.influencer.activity import check_activity, ACTIVITY_WINDOW_DAYS
 from app.influencer.scoring import compute_influencer_score
 
 router = APIRouter()
@@ -102,9 +103,13 @@ def layout(title: str, body: str) -> HTMLResponse:
     return HTMLResponse(f'<!doctype html><html lang="fa"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{h(title)}</title>{css}</head><body><div class="wrap"><div class="hero"><h1>{h(title)}</h1><div class="muted">کشف و مدیریت اینفلوئنسرهای گیمینگ ایرانی — فقط بالای ۱۰۰۰ فالوور</div><a class="btn btn2" href="/">بانک لیدها</a> <a class="btn btn2" href="/sponsor">🎯 اسپانسری</a> <a class="btn btn2" href="/influencer">🌟 اینفلوئنسرها</a> <a class="btn btn2" href="/influencer/discover">🔍 کشف اینفلوئنسر</a></div>{body}</div>{js}</body></html>')
 
 
-def _stats(db: Session) -> dict:
-    base = select(Influencer).where(Influencer.language == 'fa', Influencer.followers >= MIN_FOLLOWERS)
+def _stats(db: Session, active_only: bool = True) -> dict:
+    base = select(Influencer).where(Influencer.language == 'fa')
+    if active_only:
+        base = base.where(Influencer.is_active == True)
     total = db.scalar(select(func.count()).select_from(base.subquery())) or 0
+    total_all = db.scalar(select(func.count()).select_from(select(Influencer).subquery())) or 0
+    inactive = db.scalar(select(func.count()).select_from(select(Influencer).where(Influencer.is_active == False).subquery())) or 0
     by_platform = {}
     for p in ['instagram', 'telegram']:
         by_platform[p] = db.scalar(select(func.count()).select_from(base.where(Influencer.platform == p).subquery())) or 0
@@ -113,11 +118,15 @@ def _stats(db: Session) -> dict:
     by_tier = {}
     for t in ['micro', 'mid', 'macro', 'mega']:
         by_tier[t] = db.scalar(select(func.count()).select_from(base.where(Influencer.tier == t).subquery())) or 0
-    return {'total': total, 'by_platform': by_platform, 'high_score': high_score, 'collaborating': collaborating, 'by_tier': by_tier}
+    return {'total': total, 'total_all': total_all, 'inactive': inactive, 'activity_window_days': 30,
+            'by_platform': by_platform, 'high_score': high_score,
+            'collaborating': collaborating, 'by_tier': by_tier}
 
 
-def _build_query(db: Session, **kwargs):
-    stmt = select(Influencer).where(Influencer.language == 'fa', Influencer.followers >= MIN_FOLLOWERS)
+def _build_query(db: Session, active_only: bool = True, **kwargs):
+    stmt = select(Influencer).where(Influencer.language == 'fa')
+    if active_only:
+        stmt = stmt.where(Influencer.is_active == True)
     if kwargs.get('platform'): stmt = stmt.where(Influencer.platform == kwargs['platform'])
     if kwargs.get('status'): stmt = stmt.where(Influencer.status == kwargs['status'])
     return stmt.order_by(desc(Influencer.collab_score))
@@ -132,7 +141,19 @@ def _render_row(inf: Influencer) -> str:
     tier_info = TIER_LABELS.get(inf.tier or '', ('❓', inf.tier or '-', '#9ca3af'))
     status_cls = {'discovered': '', 'researching': 'blue', 'contacted': 'orange', 'negotiating': 'purple', 'collaborating': 'green', 'rejected': 'red'}.get(inf.status, '')
     gt = ''.join(f'<span class="badge" style="font-size:11px">{h(t.strip())}</span>' for t in (inf.game_tags or '').split(',') if t.strip())
-    return f'''<tr class="inf-row"><td><div style="font-weight:800;font-size:15px;margin-bottom:3px">{_platform_icon(inf.platform)} {h(inf.display_name)}</div><a class="url" target="_blank" href="{h(inf.profile_url)}">{h(inf.username or inf.profile_url)}</a><div class="small muted" style="margin-top:3px">{h((inf.bio or '')[:100])}</div><div style="margin-top:5px"><span class="badge {status_cls}">{h(INF_STATUS.get(inf.status, inf.status))}</span>{f'<span class="badge purple">{h(inf.niche)}</span>' if inf.niche else ''}{f'<span class="badge" style="background:#f0fdf4;color:#166534">{tier_info[0]} {tier_info[1]}</span>' if inf.tier else ''}</div><div style="margin-top:3px">{gt}</div></td><td style="text-align:center"><div style="font-size:22px;font-weight:800;color:#be185d">{_format_count(inf.followers)}</div><div class="small muted">فالوور</div><div style="margin-top:6px" class="small"><div>👁 {round(inf.avg_views or 0)} بازدید</div><div>❤️ {round(inf.avg_likes or 0)} لایک</div><div>💬 {round(inf.avg_comments or 0)} کامنت</div><div>📊 {round(inf.engagement_rate or 0, 1)}% تعامل</div></div></td><td><div style="margin-bottom:5px"><span class="small">مرتبط‌بودن</span>{_score_bar(inf.relevance_score, '#be185d')}</div><div style="margin-bottom:5px"><span class="small">کیفیت</span>{_score_bar(inf.quality_score, '#12b76a')}</div><div><span class="small">امتیاز همکاری</span>{_score_bar(inf.collab_score, cc)}</div></td><td><div class="small muted">قیمت: {h(inf.collab_price or '-')}</div><div class="small muted">نوع: {h(inf.collab_type or '-')}</div></td><td><a class="btn" href="/influencer/{inf.id}" style="font-size:11px;padding:6px 10px">جزئیات</a><a class="btn2 btn" target="_blank" href="{h(inf.profile_url)}" style="font-size:11px;padding:6px 10px">پروفایل</a><button class="btn-danger" onclick="confirmDelete({inf.id},'{h(inf.display_name)}')">🗑 حذف</button></td></tr>'''
+
+    # نشان فعال بودن
+    if inf.is_active:
+        if inf.last_post_at:
+            from datetime import datetime, timezone
+            days_ago = (datetime.utcnow().replace(tzinfo=timezone.utc) - inf.last_post_at.replace(tzinfo=timezone.utc if not inf.last_post_at.tzinfo else inf.last_post_at.tzinfo)).days if inf.last_post_at else None
+            activity_badge = f'<span class="badge green">✅ فعال · {days_ago}d</span>' if days_ago is not None else '<span class="badge green">✅ فعال</span>'
+        else:
+            activity_badge = '<span class="badge green">✅ فعال</span>'
+    else:
+        activity_badge = f'<span class="badge red" title="{h(inf.activity_reason or "")}">⚪ غیرفعال</span>'
+
+    return f'''<tr class="inf-row"><td><div style="font-weight:800;font-size:15px;margin-bottom:3px">{_platform_icon(inf.platform)} {h(inf.display_name)}</div><a class="url" target="_blank" href="{h(inf.profile_url)}">{h(inf.username or inf.profile_url)}</a><div class="small muted" style="margin-top:3px">{h((inf.bio or '')[:100])}</div><div style="margin-top:5px">{activity_badge}<span class="badge {status_cls}">{h(INF_STATUS.get(inf.status, inf.status))}</span>{f'<span class="badge purple">{h(inf.niche)}</span>' if inf.niche else ''}{f'<span class="badge" style="background:#f0fdf4;color:#166534">{tier_info[0]} {tier_info[1]}</span>' if inf.tier else ''}</div><div style="margin-top:3px">{gt}</div></td><td style="text-align:center"><div style="font-size:22px;font-weight:800;color:#be185d">{_format_count(inf.followers)}</div><div class="small muted">فالوور</div><div style="margin-top:6px" class="small"><div>👁 {round(inf.avg_views or 0)} بازدید</div><div>❤️ {round(inf.avg_likes or 0)} لایک</div><div>💬 {round(inf.avg_comments or 0)} کامنت</div><div>📊 {round(inf.engagement_rate or 0, 1)}% تعامل</div></div></td><td><div style="margin-bottom:5px"><span class="small">مرتبط‌بودن</span>{_score_bar(inf.relevance_score, '#be185d')}</div><div style="margin-bottom:5px"><span class="small">کیفیت</span>{_score_bar(inf.quality_score, '#12b76a')}</div><div><span class="small">امتیاز همکاری</span>{_score_bar(inf.collab_score, cc)}</div></td><td><div class="small muted">قیمت: {h(inf.collab_price or '-')}</div><div class="small muted">نوع: {h(inf.collab_type or '-')}</div></td><td><a class="btn" href="/influencer/{inf.id}" style="font-size:11px;padding:6px 10px">جزئیات</a><a class="btn2 btn" target="_blank" href="{h(inf.profile_url)}" style="font-size:11px;padding:6px 10px">پروفایل</a><button class="btn-danger" onclick="confirmDelete({inf.id},'{h(inf.display_name)}')">🗑 حذف</button></td></tr>'''
 
 
 # ============================================================
@@ -140,12 +161,16 @@ def _render_row(inf: Influencer) -> str:
 # ============================================================
 
 @router.get('/influencer', response_class=HTMLResponse)
-def influencer_index(db: Session = Depends(get_db), platform: str = Query(''), niche: str = Query(''), tier: str = Query(''), q: str = Query(''), sort: str = Query('collab_score'), min_followers: int = Query(0, ge=0), min_score: int = Query(0, ge=0, le=100), status: str = Query(''), limit: int = Query(200, ge=1, le=500), msg: str = Query('')):
-    stats = _stats(db)
+def influencer_index(db: Session = Depends(get_db), platform: str = Query(''), niche: str = Query(''), tier: str = Query(''), q: str = Query(''), sort: str = Query('collab_score'), min_followers: int = Query(0, ge=0), min_score: int = Query(0, ge=0, le=100), status: str = Query(''), limit: int = Query(200, ge=1, le=500), msg: str = Query(''), show_inactive: str = Query('')):
+    active_only = show_inactive != 'yes'
+    stats = _stats(db, active_only=active_only)
 
-    # همیشه فقط ایرانی + حداقل فالوور
-    min_f = max(min_followers, MIN_FOLLOWERS)
-    stmt = select(Influencer).where(Influencer.language == 'fa', Influencer.followers >= min_f)
+    # فقط ایرانی + پیش‌فرض فقط فعال
+    stmt = select(Influencer).where(Influencer.language == 'fa')
+    if active_only:
+        stmt = stmt.where(Influencer.is_active == True)
+    if min_followers:
+        stmt = stmt.where(Influencer.followers >= min_followers)
     if platform: stmt = stmt.where(Influencer.platform == platform)
     if niche: stmt = stmt.where(Influencer.niche.ilike(f'%{niche}%'))
     if tier: stmt = stmt.where(Influencer.tier == tier)
@@ -189,12 +214,46 @@ def influencer_index(db: Session = Depends(get_db), platform: str = Query(''), n
     platform_opts = '<option value="">همه پلتفرم‌ها</option>' + ''.join(f'<option value="{p}" {"selected" if platform==p else ""}>{PLATFORM_META[p][1]}</option>' for p in ['instagram', 'telegram'])
     tier_cards = ''.join(f'<div class="stat-card"><span style="font-size:18px">{TIER_LABELS[t][0]}</span><div class="small">{TIER_LABELS[t][1]}</div><b style="color:{TIER_LABELS[t][2]}">{stats["by_tier"][t]}</b></div>' for t in ['micro','mid','macro','mega'] if stats['by_tier'].get(t, 0) > 0)
 
-    body = f'''<div class="grid5"><div class="stat-card">کل ایرانی<b style="color:#be185d">{stats["total"]}</b></div><div class="stat-card">📸 اینستاگرام<b style="color:#e1306c">{stats["by_platform"].get("instagram",0)}</b></div><div class="stat-card">✈️ تلگرام<b style="color:#0088cc">{stats["by_platform"].get("telegram",0)}</b></div><div class="stat-card">⭐ امتیاز بالا<b style="color:#12b76a">{stats["high_score"]}</b></div><div class="stat-card">🤝 همکاری فعال<b style="color:#f79009">{stats["collaborating"]}</b></div></div>
+    body = f'''
+    <div class="grid5">
+      <div class="stat-card">
+        <span class="small">✅ فعال ({stats["activity_window_days"] if "activity_window_days" in stats else 30} روز)</span>
+        <b style="color:#12b76a">{stats["total"]}</b>
+        <div class="small muted">از کل {stats["total_all"]}</div>
+      </div>
+      <div class="stat-card">📸 اینستاگرام<b style="color:#e1306c">{stats["by_platform"].get("instagram",0)}</b></div>
+      <div class="stat-card">✈️ تلگرام<b style="color:#0088cc">{stats["by_platform"].get("telegram",0)}</b></div>
+      <div class="stat-card">⭐ امتیاز بالا<b style="color:#12b76a">{stats["high_score"]}</b></div>
+      <div class="stat-card">🤝 همکاری فعال<b style="color:#f79009">{stats["collaborating"]}</b></div>
+    </div>
     {f'<div class="grid5">{tier_cards}</div>' if tier_cards else ''}
     {f'<div class="card hint">{h(msg)}</div>' if msg else ''}
-    <div class="card"><h3>🔍 جستجو و فیلتر</h3><form method="get" action="/influencer"><input name="q" placeholder="جستجو" value="{h(q)}" style="min-width:240px"><select name="platform">{platform_opts}</select><select name="tier">{tier_opts}</select><select name="status">{status_opts}</select><input name="niche" placeholder="نیچ" value="{h(niche)}" style="width:100px"><select name="sort">{sort_opts}</select><button>فیلتر</button></form></div>
-    <div class="card"><h3>🌟 اینفلوئنسرهای ایرانی بالای ۱۰۰۰ فالوور ({len(influencers)} نفر)</h3>{folder_sections or '<div style="text-align:center;padding:30px" class="muted">هنوز اینفلوئنسری کشف نشده. از دکمه «کشف اینفلوئنسر» استفاده کنید.</div>'}</div>
-    <div class="card"><a class="btn" href="/influencer/export.xlsx">📥 Excel</a> <a class="btn2 btn" href="/influencer/export.csv">📥 CSV</a> <a class="btn-danger" href="/influencer/cleanup" onclick="return confirm('همه پروفایل‌های زیر ۱۰۰۰ فالوور و خارجی حذف بشن؟')">🧹 پاکسازی پروفایل‌های ضعیف</a></div>'''
+    <div class="card">
+      <h3>🔍 جستجو و فیلتر</h3>
+      <form method="get" action="/influencer">
+        <input name="q" placeholder="جستجو" value="{h(q)}" style="min-width:240px">
+        <select name="platform">{platform_opts}</select>
+        <select name="tier">{tier_opts}</select>
+        <select name="status">{status_opts}</select>
+        <input name="niche" placeholder="نیچ" value="{h(niche)}" style="width:100px">
+        <select name="sort">{sort_opts}</select>
+        <label style="display:inline-flex;align-items:center;background:#fef3c7;padding:6px 10px;border-radius:8px;margin:4px">
+          <input type="checkbox" name="show_inactive" value="yes" {'checked' if show_inactive == 'yes' else ''} style="margin:0 4px">
+          🟡 نمایش غیرفعال‌ها ({stats["inactive"]})
+        </label>
+        <button>فیلتر</button>
+      </form>
+    </div>
+    <div class="card">
+      <h3>🌟 اینفلوئنسرهای ایرانی {'(فقط فعال)' if not show_inactive == 'yes' else '(همه)'} - {len(influencers)} نفر</h3>
+      {folder_sections or '<div style="text-align:center;padding:30px" class="muted">هنوز اینفلوئنسری کشف نشده. از دکمه «کشف اینفلوئنسر» استفاده کنید.</div>'}
+    </div>
+    <div class="card">
+      <a class="btn" href="/influencer/export.xlsx">📥 Excel</a>
+      <a class="btn2 btn" href="/influencer/export.csv">📥 CSV</a>
+      <a class="btn2 btn" href="/influencer/recheck" onclick="return confirm('چک مجدد فعالیت همه اینفلوئنسرها؟ ممکنه چند دقیقه طول بکشه')">🔄 چک مجدد فعالیت همه</a>
+      <a class="btn-danger" href="/influencer/cleanup" onclick="return confirm('حذف همه پروفایل‌های غیرفعال؟')">🧹 حذف غیرفعال‌ها</a>
+    </div>'''
     return layout('🌟 اینفلوئنسرهای گیمینگ ایرانی', body)
 
 
@@ -232,6 +291,17 @@ def discover_page():
         <br><small>حتی اگه هیچ API key نداشته باشی، DuckDuckGo و لیست seed کار میکنن.</small>
       </div>
       <form method="post" action="/influencer/discover" style="margin-top:14px">
+        <div style="margin-bottom:12px;background:#dcfce7;padding:10px;border-radius:8px">
+          <label style="display:block;margin-bottom:6px">
+            <input type="checkbox" name="check_activity" value="yes" checked>
+            <b>✅ فقط پیج/کانال‌های فعال (پست جدید در N روز اخیر)</b>
+          </label>
+          <label style="display:block">
+            پنجره زمانی فعالیت:
+            <input type="number" name="activity_window" value="30" min="1" max="365" style="width:70px"> روز
+            <small class="muted">(پیشنهاد: ۳۰ روز)</small>
+          </label>
+        </div>
         <div style="margin-bottom:12px">
           <label><input type="checkbox" name="use_seed" value="yes" checked> ✨ استفاده از لیست seed (توصیه شده)</label>
         </div>
@@ -278,38 +348,39 @@ def discover_page():
 
 
 @router.post('/influencer/discover')
-async def discover_run(db: Session = Depends(get_db), platform: Annotated[str, Form()] = 'both', max_results: Annotated[int, Form()] = 8, min_score: Annotated[int, Form()] = 0, queries: Annotated[list[str] | None, Form()] = None, use_seed: Annotated[str, Form()] = 'yes'):
-    # queries خالی رو فیلتر کن
+async def discover_run(
+    db: Session = Depends(get_db),
+    platform: Annotated[str, Form()] = 'both',
+    max_results: Annotated[int, Form()] = 8,
+    queries: Annotated[list[str] | None, Form()] = None,
+    use_seed: Annotated[str, Form()] = 'yes',
+    check_activity: Annotated[str, Form()] = 'yes',
+    activity_window: Annotated[int, Form()] = ACTIVITY_WINDOW_DAYS,
+):
     queries_clean = [q for q in (queries or []) if q and q.strip()] or None
     result = await discover_influencers(
         db, platform=platform, queries=queries_clean,
-        max_results_per_query=max_results, min_collab_score=0,
+        max_results_per_query=max_results,
         use_seed_list=(use_seed == 'yes'),
+        check_activity_first=(check_activity == 'yes'),
+        activity_window_days=activity_window,
     )
 
-    # فقط پروفایل‌های خیلی ضعیف رو پاک کن (نه پروفایل‌های scrape نشده!)
-    # اگر followers یه چیزی داشت ولی زیر ۵۰۰ بود، پاک کن
-    cleaned = db.execute(
-        select(Influencer).where(
-            Influencer.followers.isnot(None),
-            Influencer.followers > 0,
-            Influencer.followers < MIN_FOLLOWERS,
-        )
-    ).scalars().all()
-    clean_count = len(cleaned)
-    for inf in cleaned:
-        db.delete(inf)
-    db.commit()
+    backends = ', '.join(result.get('backends_used') or []) or 'DuckDuckGo'
+    activity_status = ''
+    if result.get('activity_check_enabled'):
+        activity_status = (f" | 🎯 چک فعالیت ({result['activity_window_days']} روز): "
+                          f"✅ فعال ذخیره شد، ⚪ {result.get('skipped_inactive', 0)} غیرفعال رد شد، "
+                          f"❌ {result.get('skipped_notfound', 0)} پیدا نشد")
 
-    backends = ', '.join(result.get('backends_used') or []) or 'هیچ backend فعال نبود'
     msg = (f"✅ کشف انجام شد: {result['queries_run']} جستجو، "
            f"{result['search_results_total']} نتیجه وب، "
-           f"{result.get('seed_used', 0)} پروفایل seed، "
+           f"{result.get('seed_used', 0)} seed، "
            f"{result['profiles_found']} پروفایل یکتا، "
-           f"{result['new_saved']} جدید، {result['duplicates']} تکراری. "
-           f"{clean_count} پروفایل خیلی ضعیف حذف شد. Backends: {backends}")
+           f"{result['new_saved']} جدید ذخیره شد، {result['duplicates']} تکراری."
+           f"{activity_status} | Backends: {backends}")
     if result.get('errors'):
-        msg += f" ⚠️ {len(result['errors'])} خطا رخ داد."
+        msg += f" ⚠️ {len(result['errors'])} خطا."
     return RedirectResponse(url=f'/influencer?msg={quote_plus(msg)}', status_code=303)
 
 
@@ -333,13 +404,24 @@ async def manual_add(db: Session = Depends(get_db), profile_url: Annotated[str, 
 
 @router.get('/influencer/cleanup')
 def cleanup_profiles(db: Session = Depends(get_db)):
-    """حذف پروفایل‌های غیرایرانی و زیر ۱۰۰۰ فالوور"""
-    bad = db.execute(select(Influencer).where((Influencer.language != 'fa') | (Influencer.followers < MIN_FOLLOWERS) | (Influencer.followers.is_(None)))).scalars().all()
+    """حذف پروفایل‌های غیرفعال (is_active=False)"""
+    bad = db.execute(select(Influencer).where(Influencer.is_active == False)).scalars().all()
     count = len(bad)
     for inf in bad:
         db.delete(inf)
     db.commit()
-    return RedirectResponse(url=f'/influencer?msg={quote_plus(f"{count} پروفایل ضعیف/خارجی حذف شد")}', status_code=303)
+    return RedirectResponse(url=f'/influencer?msg={quote_plus(f"🧹 {count} پروفایل غیرفعال حذف شد")}', status_code=303)
+
+
+@router.get('/influencer/recheck')
+async def recheck_activity(db: Session = Depends(get_db), delete: str = Query(''), window: int = Query(ACTIVITY_WINDOW_DAYS, ge=1, le=365)):
+    """چک مجدد فعالیت همه اینفلوئنسرها. اگر ?delete=yes باشه غیرفعال‌ها حذف میشن."""
+    result = await recheck_all_activity(db, window_days=window, delete_inactive=(delete == 'yes'))
+    deleted_part = f', 🧹 حذف شده: {result["deleted"]}' if result.get('deleted') else ''
+    msg = (f"🔄 چک مجدد فعالیت انجام شد: بررسی {result['total_checked']} نفر، "
+           f"✅ فعال: {result['active']}، ⚪ غیرفعال: {result['inactive']}، "
+           f"❌ پیدا نشد: {result['notfound']}، خطا: {result['errors']}{deleted_part}")
+    return RedirectResponse(url=f'/influencer?msg={quote_plus(msg)}', status_code=303)
 
 
 @router.get('/influencer/export.csv')

@@ -198,12 +198,13 @@ def parse_id_list(value: str | None) -> set[int]:
 @app.on_event('startup')
 def startup():
     from app.sponsor.models import SponsorChannel  # ensure table created
-    from app.influencer.models import Influencer, InfluencerTag  # ensure table created
+    from app.influencer.models import Influencer, InfluencerTag, migrate_influencer_columns
     from app.growth.models import LandingPage, LandingSignup, ReferralLink, ReferralClick, WelcomeMessage, ContentPost  # ensure table created
     Base.metadata.create_all(bind=engine)
     db = next(get_db())
     try:
         migrate_crm_columns(db)
+        migrate_influencer_columns(db)
         Base.metadata.create_all(bind=engine)
         init_seed_data(db)
         seed_crm_data(db)
